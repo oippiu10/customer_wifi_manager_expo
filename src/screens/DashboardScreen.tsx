@@ -214,14 +214,17 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
             )}
 
             <View style={styles.ipSuggestions}>
-              <TouchableOpacity onPress={() => handleSuggestionPress('192.168.1.1')} style={styles.suggestionBadge}>
+              <TouchableOpacity 
+                onPress={() => handleSuggestionPress('192.168.1.1')} 
+                style={[styles.suggestionBadge, { marginRight: 12 }]}
+              >
                 <Text style={styles.suggestionText}>192.168.1.1</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => handleSuggestionPress('192.168.0.1')} style={styles.suggestionBadge}>
+              <TouchableOpacity 
+                onPress={() => handleSuggestionPress('192.168.0.1')} 
+                style={styles.suggestionBadge}
+              >
                 <Text style={styles.suggestionText}>192.168.0.1</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => handleSuggestionPress('10.0.0.1')} style={styles.suggestionBadge}>
-                <Text style={styles.suggestionText}>10.0.0.1</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -486,20 +489,21 @@ const styles = StyleSheet.create({
   },
   ipSuggestions: {
     flexDirection: 'row',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     marginTop: 14,
   },
   suggestionBadge: {
+    flex: 1,
     backgroundColor: '#1E293B',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 10,
     borderRadius: 8,
-    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   suggestionText: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#94A3B8',
-    fontWeight: '600',
+    fontWeight: '700',
   },
   sectionTitle: {
     fontSize: 16,
