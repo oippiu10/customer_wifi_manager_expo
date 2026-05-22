@@ -6,13 +6,15 @@ Semua target utama untuk mengotomatisasi navigasi, penanganan kesalahan secara p
 
 ## 🚀 Fitur yang Berhasil Diimplementasikan
 
-### 1. 🌐 Detektor Koneksi Online/Offline Dinamis (Dasbor Cerdas)
-- **Status Otomatis (Real-time)**: Dasbor awal sekarang secara otomatis memeriksa koneksi nirkabel ke gateway modem `{IP_MODEM}` menggunakan request fetch berkecepatan tinggi dengan timeout ketat (2 detik).
-- **Status Badge Dinamis**:
-  - 🔴 **OFFLINE**: Jika ponsel tidak terhubung ke WiFi modem atau IP salah. Tombol akses dinonaktifkan untuk mencegah error/stuck.
-  - 🟡 **MENGECEK...**: Saat aplikasi sedang memvalidasi koneksi ke modem.
-  - 🔵 **ONLINE**: Jika koneksi ke portal admin modem terkonfirmasi sukses dan siap digunakan!
-- **Proteksi Tombol Pintar**: Tombol "Buka Portal Modem" akan otomatis berubah warna menjadi abu-abu mewah, menampilkan teks *"Modem Offline ❌"*, dinonaktifkan untuk diklik, serta memunculkan kotak notifikasi peringatan merah yang informatif: *"⚠️ Ponsel Anda offline atau tidak terhubung ke WiFi modem. Silakan aktifkan WiFi dan sambungkan ke jaringan router..."*. Ini mencegah pengguna dari membuka layar kosong/stuck!
+### 1. 🌐 Detektor Koneksi & Auto-Discovery Gateway Otomatis (Super Cerdas)
+- **Default IP**: Aplikasi secara default menggunakan IP modem paling umum `192.168.1.1`.
+- **Auto-Discovery (Auto-Scan)**: Jika default IP `192.168.1.1` terdeteksi offline (tidak merespons), sistem secara cerdas akan **memindai IP alternatif yang umum secara background** (`192.168.0.1` dan `10.0.0.1`) dalam milidetik.
+- **Pembaruan Otomatis**: Begitu salah satu IP alternatif merespons (misal ponsel terhubung ke TP-Link pada `192.168.0.1`):
+  - Kolom input IP otomatis diperbarui ke IP yang aktif (`192.168.0.1`).
+  - Status berubah menjadi **ONLINE** (biru cyan bersinar).
+  - Memunculkan lencana info sukses: *"✨ IP Modem terdeteksi otomatis pada 192.168.0.1!"*.
+  - Akses tombol langsung aktif otomatis!
+- **Proteksi Cerdas & Prioritas Manual**: Auto-discovery akan dinonaktifkan secara otomatis jika pengguna mulai mengetik IP kustom secara manual atau memilih saran IP secara sadar. Ini menjamin aplikasi tetap patuh pada ketikan manual pengguna tanpa merusaknya secara paksa.
 
 ### 2. 🤖 Progress Card Otomasi Premium (Visual Senyap)
 - WebView disembunyikan secara visual (`width: 0, height: 0, opacity: 0, position: 'absolute'`) untuk memberikan sensasi aplikasi 100% native.
@@ -40,11 +42,11 @@ Semua target utama untuk mengotomatisasi navigasi, penanganan kesalahan secara p
 ## 🛠️ Ringkasan Perubahan Kode
 
 ### [DashboardScreen.tsx](file:///c:/laragon/www/customer_wifi_manager_expo/src/screens/DashboardScreen.tsx)
-- Menambahkan state `isOnline` untuk status koneksi.
-- Mengimplementasikan fungsi `checkConnection` dengan AbortController untuk ping periodik (6 detik).
-- Mengintegrasikan styling dynamic badge online/offline (biru cyan untuk online, merah untuk offline, oranye untuk mengecek).
+- Menambahkan state `isOnline`, `hasManuallyEdited`, dan `discoveredAutomatically` untuk status koneksi cerdas.
+- Mengimplementasikan fungsi `checkConnection` dengan penambahan argumen `shouldAutoDiscover` untuk memindai IP alternatif (`192.168.1.1`, `192.168.0.1`, `10.0.0.1`).
+- Menambahkan text banner `discoveredText` di bawah tombol jika IP sukses dideteksi otomatis.
+- Mengintegrasikan styling dynamic badge online/offline/checking.
 - Melakukan proteksi dinonaktifkan (`disabled`) pada tombol submit gerbang.
-- Menambahkan kotak notifikasi peringatan visual ketika offline.
 
 ### [ModemWebViewScreen.tsx](file:///c:/laragon/www/customer_wifi_manager_expo/src/screens/ModemWebViewScreen.tsx)
 - Menambahkan state `securePassword` untuk mengontrol visibilitas password.
@@ -66,4 +68,5 @@ Seluruh modifikasi kode telah di-stage dan di-commit dengan aman ke Git lokal un
 - **Commit 8**: `feat: hapus label aktif SSID dan password yang tidak diperlukan`
 - **Commit 9**: `fix: hapus alert debug link spam yang memunculkan banyak popup OK`
 - **Commit 10**: `feat: tambah deteksi online/offline dinamis pada dasbor awal dengan proteksi tombol`
-- **Commit 11**: `docs: update walkthrough dengan panduan dasbor cerdas online/offline`
+- **Commit 11**: `feat: tambah fitur auto-discovery gateway IP otomatis jika default offline`
+- **Commit 12**: `docs: update walkthrough dengan panduan auto-discovery gateway IP`
