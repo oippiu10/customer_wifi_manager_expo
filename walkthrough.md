@@ -16,28 +16,38 @@ Semua target utama untuk mengotomatisasi navigasi, penanganan kesalahan secara p
   - Akses tombol langsung aktif otomatis!
 - **Proteksi Cerdas & Prioritas Manual**: Auto-discovery akan dinonaktifkan secara otomatis jika pengguna mulai mengetik IP kustom secara manual atau memilih saran IP secara sadar. Ini menjamin aplikasi tetap patuh pada ketikan manual pengguna tanpa merusaknya secara paksa.
 
-### 2. 📱 Tampilan Dua Saran IP Simetris Kanan-Kiri (50/50 Layout)
+### 2. 🤫 Mode Teknisi Tersembunyi (Secret Technician Mode - Ketuk Logo 5x)
+- **Mode Pelanggan Biasa (Default)**: Saat aplikasi dibuka, dasbor **hanya akan menampilkan** "Portal Gateway Modem" (Form input IP) dan "Panduan Diagnosa Jaringan" (Troubleshooting bantuan). Menu teknisi yang sensitif disembunyikan secara total agar tidak bisa diakses atau diketahui oleh pelanggan biasa demi keamanan sistem.
+- **Mekanisme Aktivasi Rahasia**: 
+  - Teknisi dapat mengetuk logo judul **"NetGateway"** di pojok kiri atas dasbor sebanyak **5 kali secara cepat** (jeda antar ketukan kurang dari 800ms).
+  - Sistem akan memicu alert premium: *"🛠️ Mode Asisten Jaringan Teknisi Aktif!"*.
+  - Logo judul otomatis ditandai dengan ikon obeng tang `🛠️` kecil di sebelahnya.
+- **Menu Rahasia Teknisi Terbuka**:
+  - Setelah aktif, menu **"Peralatan Bantu Teknisi 🛠️"** yang berisi **"Sandi Bawaan"** (Database sandi modem) dan **"Tes Ping Jaringan"** (Ping Latency tester real-time) akan muncul secara ajaib di tengah dasbor!
+  - Teknisi dapat mengunci kembali menu ini kapan saja dengan mengetuk kembali logo sebanyak 5 kali.
+
+### 3. 📱 Tampilan Dua Saran IP Simetris Kanan-Kiri (50/50 Layout)
 - **Hanya 2 IP Terpopuler**: Menghapus opsi IP `10.0.0.1` yang jarang digunakan pelanggan biasa agar tampilan lebih simpel, langsung pada sasaran, dan bersih.
-- **Tata Letak Simetris (Kiri-Kanan)**: Opsi `192.168.1.1` dan `192.168.0.1` sekarang disusun berdampingan secara horizontal dengan pembagian porsi lebar yang sama rata (50% kiri, 50% kanan) dan celah pemisah (*gutter*) 12px yang manis.
+- **Tata Letak Simetris (Kiri-Kanan)**: Opsi `192.168.1.1` and `192.168.0.1` sekarang disusun berdampingan secara horizontal dengan pembagian porsi lebar yang sama rata (50% kiri, 50% kanan) dan celah pemisah (*gutter*) 12px yang manis.
 - **Ukuran Lebih Tebal & Premium**: Tombol saran dibuat lebih tebal (`paddingVertical: 10`), dengan teks yang lebih tegas (`fontWeight: '700'`), sehingga sangat mudah dan nyaman untuk ditekan oleh jari pengguna.
 
-### 3. 🤖 Progress Card Otomasi Premium (Visual Senyap)
+### 4. 🤖 Progress Card Otomasi Premium (Visual Senyap)
 - WebView disembunyikan secara visual (`width: 0, height: 0, opacity: 0, position: 'absolute'`) untuk memberikan sensasi aplikasi 100% native.
 - Menampilkan halaman loading fullscreen premium berlatar gelap elegan dengan spinner besar dan langkah live progress.
 
-### 4. 🛡️ Sistem Penanganan Error & Notifikasi Native (Bulletproof)
+### 5. 🛡️ Sistem Penanganan Error & Notifikasi Native (Bulletproof)
 - **Deteksi Login Gagal**: Script otomatis mendeteksi pesan error bawaan modem ZTE dan mengirimkannya ke React Native.
 - **Deteksi Timeout**: Batas waktu 30 detik ditambahkan agar proses otomatis tidak menggantung selamanya saat koneksi modem macet.
-- **Deteksi Network/HTTP Error**: Menggunakan callback `onError` dan `onHttpError` pada WebView.
+- **Deteksi Network/HTTP Error**: Menggunakan callback `onError` and `onHttpError` pada WebView.
 - **Tampilan Error Page Elegant**: Membuka notifikasi error native premium dengan tombol untuk mereload kembali atau mengedit kredensial secara native.
 - **Zero Spam Popups**: Menghapus `Alert.alert` bawaan pada modul `DEBUG_LINKS` yang sebelumnya memborbardir pengguna dengan 5-6 popup dialog "OK" ketika proses pencarian menu nirkabel mengalami kendala koneksi atau lambat. Data diagnosa sekarang dialihkan dengan aman ke `console.warn` pengembang tanpa mengganggu UI pengguna.
 
-### 🚪 5. Logout Otomatis & Aman Saat Kembali (`handleBackWithLogout`)
+### 🚪 6. Logout Otomatis & Aman Saat Kembali (`handleBackWithLogout`)
 - Begitu tombol **"Kembali"**, **"Menu Utama"**, atau tanda **"✕"** ditekan, aplikasi memicu fungsi `handleBackWithLogout()`.
 - Menampilkan overlay merah yang aman: *"Mengakhiri Sesi... Menutup sesi aktif Anda pada portal modem secara aman"*.
 - Injeksi script untuk memicu logout di modem agar sesi tidak menyangkut dan mencegah error *"Session limit exceeded"*.
 
-### 🔒 6. Sistem Hide/Show Password Premium & Gembok Profesional
+### 🔒 7. Sistem Hide/Show Password Premium & Gembok Profesional
 - **Default Hidden**: Kolom input password baru WiFi secara default menyembunyikan teks (`secureTextEntry={true}`) demi privasi pengguna.
 - **Tombol Tampilkan/Sembunyikan Profesional**:
   - Saat password disembunyikan: Tampil ikon mata (`👁️`) yang bersih. Ketuk untuk mengintip.
@@ -50,10 +60,10 @@ Semua target utama untuk mengotomatisasi navigasi, penanganan kesalahan secara p
 ## 🛠️ Ringkasan Perubahan Kode
 
 ### [DashboardScreen.tsx](file:///c:/laragon/www/customer_wifi_manager_expo/src/screens/DashboardScreen.tsx)
-- Menyaring menu saran IP menjadi hanya `192.168.1.1` dan `192.168.0.1`.
-- Memperbarui gaya Flexbox `ipSuggestions` (`justifyContent: 'space-between'`) dan `suggestionBadge` (`flex: 1`, `paddingVertical: 10`, `alignItems: 'center'`) untuk menyusun tombol simetris 50/50 secara harmonis.
-- Menambahkan state `isOnline`, `hasManuallyEdited`, dan `discoveredAutomatically` untuk status koneksi cerdas.
-- Mengimplementasikan fungsi `checkConnection` dengan penambahan argumen `shouldAutoDiscover` untuk memindai IP alternatif secara background.
+- Menambahkan state `lastTap`, `tapCount`, dan `isTechMode` untuk mendeteksi 5x ketukan logo cepat.
+- Mengatur header judul `brandTitle` agar merespons ketukan dengan pembatalan layout jika pelanggan biasa.
+- Mengkondisikan rendering menu grid `"Peralatan Bantu Teknisi 🛠️"` (Sandi Bawaan, Tes Ping) hanya jika `isTechMode` bernilai `true`.
+- Menyaring menu saran IP menjadi hanya `192.168.1.1` dan `192.168.0.1` dengan pembagian layout 50/50 simetris.
 
 ### [ModemWebViewScreen.tsx](file:///c:/laragon/www/customer_wifi_manager_expo/src/screens/ModemWebViewScreen.tsx)
 - Menambahkan state `securePassword` untuk mengontrol visibilitas password.
@@ -82,3 +92,5 @@ Seluruh modifikasi kode telah di-stage dan di-commit dengan aman ke Git lokal un
 - **Commit 14**: `docs: update walkthrough.md untuk mencerminkan ikon gembok profesional`
 - **Commit 15**: `style: hapus suggestion 10.0.0.1 dan posisikan dua IP suggestion berdampingan 50/50 secara simetris`
 - **Commit 16**: `docs: update walkthrough.md dengan layout 50/50 simetris`
+- **Commit 17**: `feat: tambah Secret Technician Mode (5x tap logo) untuk menampilkan menu bantu teknisi`
+- **Commit 18**: `docs: update walkthrough.md untuk mencakup Secret Technician Mode`
