@@ -316,9 +316,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           </TouchableOpacity>
 
           <View style={styles.footer}>
-            <Text style={styles.footerBrandText}>NUSANTARA NETWORK</Text>
-            <Text style={styles.footerPowerText}>
-              Powered By <Text style={styles.footerDexaText}>DEXA</Text><Text style={styles.footerNetText}>NET</Text>
+            <Text style={styles.footerParentText}>MARZUQ NETWORK</Text>
+            <Text style={styles.footerSubText}>
+              Part of Nusantara Group • Powered By <Text style={styles.footerDexaText}>DEXA</Text><Text style={styles.footerNetText}>NET</Text>
             </Text>
           </View>
         </ScrollView>
@@ -639,14 +639,14 @@ const styles = StyleSheet.create({
     marginTop: 26,
     marginBottom: 10,
   },
-  footerBrandText: {
-    fontSize: 13,
-    color: '#475569',
-    fontWeight: '700',
+  footerParentText: {
+    fontSize: 14,
+    color: '#FFF',
+    fontWeight: '800',
     letterSpacing: 1.5,
   },
-  footerPowerText: {
-    fontSize: 11,
+  footerSubText: {
+    fontSize: 10,
     color: '#64748B',
     fontWeight: '600',
     marginTop: 4,
