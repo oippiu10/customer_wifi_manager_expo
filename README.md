@@ -1,48 +1,153 @@
-# 📡 NetGateway - Router Portal & Network Utility
+# 📶 Customer WiFi Manager — Expo
 
-Aplikasi mobile berbasis **React Native Expo** untuk memudahkan pengguna atau teknisi ISP mengakses portal konfigurasi modem (seperti `192.168.1.1`) secara aman di dalam aplikasi, dilengkapi dengan alat diagnosa jaringan (*Network Utilities*) bawaan yang modern dan elegan.
-
----
-
-## 🎨 Tampilan & Desain Premium
-Aplikasi ini dirancang dengan antarmuka gelap (*cyberpunk-dark theme*) menggunakan warna aksen cyan `#06B6D4` dan biru `#3B82F6` yang futuristik, animasi progress loading bar yang mewah, serta tata letak kartu yang responsif.
+Aplikasi mobile berbasis **React Native (Expo)** untuk manajemen WiFi pelanggan melalui portal modem secara **otomatis**.
 
 ---
 
-## 📁 Struktur Berkas Proyek (`src/`)
-Proyek ini sangat minimalis dan bersih dari file-file yang tidak digunakan:
-*   `src/navigation/AppNavigator.tsx` — Sistem navigasi internal berbasis status yang super stabil dan zero-dependency.
-*   `src/screens/SplashScreen.tsx` — Animasi memuat awal dengan bar proses dinamis.
-*   `src/screens/DashboardScreen.tsx` — Pusat kontrol utama, kolom input IP modem, dan menu shortcut cepat.
-*   `src/screens/ModemWebViewScreen.tsx` — Pembungkus WebView modem dengan navigasi kustom (*Back*, *Forward*, *Refresh*, *Home*).
-*   `src/screens/CredentialsScreen.tsx` — Database password admin bawaan pabrik modem ISP (ZTE, Huawei, dll.) dengan fitur pencarian dan salin satu ketukan.
-*   `src/screens/PingTesterScreen.tsx` — Konsol diagnosa latensi real-time bergaya terminal hacker dengan statistik detail.
-*   `src/screens/NetworkGuideScreen.tsx` — Pusat edukasi mandiri pelanggan jika internet mati atau LOS merah.
+## ✅ Fitur yang Sudah Jalan
+
+### 1. Otomasi Login Modem
+- Membuka portal modem via WebView (`http://<IP_MODEM>`)
+- Mengisi username & password secara otomatis (`injectedJavaScript`)
+- Klik tombol Login otomatis
+- Mendukung berbagai selector form (ZTE, Huawei, dsb)
+
+### 2. Navigasi Otomatis: Network → WLAN
+- Setelah login berhasil, klik menu **Network** secara otomatis
+- Setelah halaman Network terbuka, klik submenu **WLAN** secara otomatis
+- Menggunakan ID elemen ZTE: `mmNet`, `smWLAN`
+- Fallback: panggil langsung fungsi JS modem `OnMenuItemClick()` + `openLink()`
+
+### 3. Progress Card UI
+- Tampilan progress 3 langkah saat otomasi berjalan:
+  - ⏳ / ✓ Login otomatis
+  - ⏳ / ✓ Membuka menu Network
+  - ⏳ / ✓ Membuka pengaturan WLAN
+- Auto-hilang 2.5 detik setelah selesai
+- Animasi fade in/out
+
+### 4. Dev Terminal
+- `npm run dev` → jalankan Expo + tampilkan QR code otomatis di bawah output
+- `npm run qr` → tampilkan ulang QR code saja
 
 ---
 
-## 🚀 Panduan Menjalankan Aplikasi
+## 📁 Struktur File Penting
 
-Aplikasi sekarang berada langsung di folder utama (root), jadi Anda bisa langsung menjalankannya tanpa perlu masuk ke subfolder!
-
-### Langkah 1: Buka Terminal Anda
-Buka Terminal Anda langsung di folder proyek utama ini.
-
-### Langkah 2: Jalankan Perintah Expo
-Jalankan perintah berikut untuk memulai server Expo dengan membersihkan cache agar semua komponen terpasang dengan benar:
-```bash
-npx expo start -c
+```
+customer_wifi_manager_expo/
+├── src/
+│   ├── screens/
+│   │   ├── ModemWebViewScreen.tsx   ← Inti otomasi WebView modem
+│   │   ├── DashboardScreen.tsx      ← Halaman utama app
+│   │   ├── CredentialsScreen.tsx    ← Input IP & kredensial modem
+│   │   ├── SplashScreen.tsx         ← Splash screen
+│   │   ├── PingTesterScreen.tsx     ← Tes koneksi ping
+│   │   └── NetworkGuideScreen.tsx   ← Panduan jaringan
+│   └── navigation/
+│       └── AppNavigator.tsx         ← Navigasi antar layar
+├── expo-dev.js                      ← Wrapper terminal (QR auto-print)
+├── show-qr.js                       ← Script tampil QR standalone
+├── package.json
+└── README.md
 ```
 
-### Langkah 3: Pindai Kode QR
-1. Unduh aplikasi **Expo Go** di Google Play Store (Android) atau App Store (iOS).
-2. Hubungkan HP Anda ke **jaringan WiFi yang sama** dengan komputer Anda.
-3. Buka aplikasi Expo Go, pilih **Scan QR Code**, dan arahkan kamera ke kode QR yang muncul di terminal Anda.
-4. Aplikasi akan termuat secara mulus dalam hitungan detik!
+---
+
+## 🔄 Alur Otomasi (ModemWebViewScreen)
+
+```
+Buka http://<IP>
+    │
+    ▼
+[AUTOFILL_SUCCESS]  ← Form login terdeteksi & diisi otomatis
+    │
+    ▼
+[LOGIN_CLICKED]     ← Tombol login diklik
+    │
+    ├─ navPhase = 'network'
+    ├─ Progress: Login ✓
+    └─ setTimeout → injectClickNetwork()
+          │
+          ▼
+    [NAV_NETWORK_CLICKED]  ← Menu Network berhasil diklik
+          │
+          ├─ navPhase = 'wlan'
+          ├─ Progress: Network ✓
+          └─ setTimeout → injectClickWlan()
+                │
+                ▼
+          [NAV_WLAN_CLICKED]  ← Halaman WLAN terbuka
+                │
+                ├─ navPhase = 'done'
+                ├─ Progress: WLAN ✓
+                └─ hideCard() setelah 2.5 detik
+```
 
 ---
 
-## ⚡ Fitur Alat Diagnosa Jaringan
-1.  **IP Suggestion Badge:** Memudahkan pengisian IP cepat ke `192.168.1.1`, `192.168.0.1`, atau `10.0.0.1`.
-2.  **Terminal RTT Logger:** Menampilkan durasi respons HEAD request ke modem secara *real-time* lengkap dengan status log.
-3.  **Dynamic Network Stats:** Menampilkan jumlah paket terkirim, diterima, persentase kegagalan (RTO), serta Rata-rata Latensi.
+## 🧩 Teknik Injeksi JavaScript
+
+### `injectClickNetwork`
+Mencari elemen dengan ID/teks "Network" di DOM, klik parent TR yang punya `onclick`.
+
+### `injectClickWlan` (ZTE-specific)
+4 strategi berurutan:
+1. Cari `id="smWLAN"` → naik ke parent `<tr>` → klik
+2. Panggil langsung `OnMenuItemClick('mmNet','smWLAN')` + `openLink(...)`
+3. Cari `<tr onclick*="smWLAN">`
+4. Cari teks "WLAN" exact → klik parent TR
+
+### Retry Mechanism
+Setiap fungsi inject di-retry beberapa kali dengan interval berbeda (1s, 2s, 3.5s, dll) karena halaman modem load lambat. Guard `navPhaseRef.current` memastikan retry berhenti begitu berhasil.
+
+---
+
+## 📱 Cara Menjalankan
+
+```powershell
+# Install dependencies
+npm install
+
+# Jalankan development server + QR code
+npm run dev
+
+# Tampilkan QR code saja
+npm run qr
+```
+
+Scan QR code dengan **Expo Go** di HP yang terhubung WiFi yang sama.
+
+---
+
+## ⚙️ Konfigurasi Modem
+
+Modem yang didukung: **ZTE** (diuji dengan firmware ZTE PON)
+
+URL login: `http://192.168.1.1` (default)
+
+Kredensial diinput di layar **CredentialsScreen** sebelum membuka WebView.
+
+---
+
+## 🚧 Rencana Fitur Berikutnya
+
+- [ ] Baca SSID & password WiFi dari halaman WLAN → tampil di app
+- [ ] Form ganti nama WiFi (SSID) dari dalam app
+- [ ] Form ganti password WiFi dari dalam app
+- [ ] Submit perubahan otomatis ke modem
+- [ ] Dukungan multi-modem (simpan beberapa profil IP)
+
+---
+
+## 📝 Catatan Teknis
+
+- Modem ZTE menyimpan SSID di field `ESSID` dan password di `KeyPassphrase`
+- Navigasi menu ZTE menggunakan fungsi JS: `openLink()`, `OnMenuItemClick()`
+- Format URL halaman WLAN: `getpage.gch?pid=1002&nextpage=pon_net_wlan_conf1_t.gch`
+- `react-native-webview` digunakan untuk render portal modem
+- Semua komunikasi WebView ↔ RN via `window.ReactNativeWebView.postMessage()`
+
+---
+
+*Dibuat dengan React Native + Expo | ZTE Modem Automation*
