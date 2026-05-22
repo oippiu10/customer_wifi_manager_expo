@@ -316,6 +316,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           </TouchableOpacity>
 
           <View style={styles.footer}>
+            <Text style={styles.footerCreatedText}>Aplikasi Resmi Yang Dikembangkan Oleh</Text>
             <Text style={styles.footerParentText}>MARZUQ NETWORK</Text>
             <Text style={styles.footerCopyrightText}>© 2026 MARZUQ NETWORK. All Rights Reserved.</Text>
             <Text style={styles.footerSubText}>
@@ -639,6 +640,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 26,
     marginBottom: 10,
+  },
+  footerCreatedText: {
+    fontSize: 9,
+    color: '#475569',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
   },
   footerParentText: {
     fontSize: 14,
