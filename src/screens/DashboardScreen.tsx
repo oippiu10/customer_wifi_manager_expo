@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -21,11 +21,43 @@ interface DashboardScreenProps {
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, onOpenGateway }) => {
   const [ipInput, setIpInput] = useState('192.168.1.1');
   const [isFocused, setIsFocused] = useState(false);
+  const [isOnline, setIsOnline] = useState<boolean | 'checking'>('checking');
+
+  // Deteksi status koneksi gateway secara dinamis
+  const checkConnection = async (ipToTest: string) => {
+    try {
+      const cleanIp = ipToTest.trim();
+      const targetUrl = /^https?:\/\//i.test(cleanIp) ? cleanIp : `http://${cleanIp}`;
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      
+      // Lakukan request GET ringan ke IP modem
+      await fetch(targetUrl, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: { 'Cache-Control': 'no-cache' }
+      });
+      
+      clearTimeout(timeoutId);
+      setIsOnline(true);
+    } catch (error) {
+      // Jika fetch gagal (koneksi terputus/off), maka dianggap offline
+      setIsOnline(false);
+    }
+  };
+
+  useEffect(() => {
+    checkConnection(ipInput);
+    const interval = setInterval(() => {
+      checkConnection(ipInput);
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [ipInput]);
 
   const handleOpenGateway = () => {
-    // Validasi sederhana alamat IP
     const cleanIp = ipInput.trim();
-    if (cleanIp) {
+    if (cleanIp && isOnline === true) {
       onOpenGateway(cleanIp);
     }
   };
@@ -42,9 +74,26 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
             <Text style={styles.brandTitle}>NetGateway</Text>
             <Text style={styles.brandSubtitle}>Router Assistant & Utility</Text>
           </View>
-          <View style={styles.statusBadge}>
-            <View style={styles.statusDot} />
-            <Text style={styles.statusText}>AKTIF</Text>
+          <View style={[
+            styles.statusBadge,
+            isOnline === true && styles.statusBadgeOnline,
+            isOnline === false && styles.statusBadgeOffline,
+            isOnline === 'checking' && styles.statusBadgeChecking,
+          ]}>
+            <View style={[
+              styles.statusDot,
+              isOnline === true && styles.statusDotOnline,
+              isOnline === false && styles.statusDotOffline,
+              isOnline === 'checking' && styles.statusDotChecking,
+            ]} />
+            <Text style={[
+              styles.statusText,
+              isOnline === true && styles.statusTextOnline,
+              isOnline === false && styles.statusTextOffline,
+              isOnline === 'checking' && styles.statusTextChecking,
+            ]}>
+              {isOnline === true ? 'ONLINE' : isOnline === false ? 'OFFLINE' : 'MENGECEK...'}
+            </Text>
           </View>
         </View>
 
@@ -80,12 +129,29 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
             </View>
 
             <TouchableOpacity 
-              style={styles.connectButton}
+              style={[
+                styles.connectButton,
+                isOnline === false && styles.connectButtonDisabled,
+                isOnline === 'checking' && styles.connectButtonChecking,
+              ]}
               onPress={handleOpenGateway}
               activeOpacity={0.8}
+              disabled={isOnline !== true}
             >
-              <Text style={styles.connectButtonText}>Buka Portal Modem 🚀</Text>
+              <Text style={[
+                styles.connectButtonText,
+                isOnline === false && styles.connectButtonTextDisabled,
+                isOnline === 'checking' && styles.connectButtonTextChecking,
+              ]}>
+                {isOnline === true ? 'Buka Portal Modem 🚀' : isOnline === false ? 'Modem Offline ❌' : 'Mengecek Koneksi... 🔄'}
+              </Text>
             </TouchableOpacity>
+
+            {isOnline === false && (
+              <Text style={styles.offlineWarningText}>
+                ⚠️ Ponsel Anda offline atau tidak terhubung ke WiFi modem. Silakan aktifkan WiFi dan sambungkan ke jaringan router {ipInput} untuk melanjutkan.
+              </Text>
+            )}
 
             <View style={styles.ipSuggestions}>
               <TouchableOpacity onPress={() => setIpInput('192.168.1.1')} style={styles.suggestionBadge}>
@@ -188,25 +254,55 @@ const styles = StyleSheet.create({
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    backgroundColor: 'rgba(71, 85, 105, 0.12)',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.25)',
+    borderColor: 'rgba(71, 85, 105, 0.25)',
+  },
+  statusBadgeOnline: {
+    backgroundColor: 'rgba(6, 182, 212, 0.12)',
+    borderColor: 'rgba(6, 182, 212, 0.25)',
+  },
+  statusBadgeOffline: {
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderColor: 'rgba(239, 68, 68, 0.25)',
+  },
+  statusBadgeChecking: {
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderColor: 'rgba(245, 158, 11, 0.25)',
   },
   statusDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#10B981',
+    backgroundColor: '#64748B',
     marginRight: 6,
+  },
+  statusDotOnline: {
+    backgroundColor: '#06B6D4',
+  },
+  statusDotOffline: {
+    backgroundColor: '#EF4444',
+  },
+  statusDotChecking: {
+    backgroundColor: '#F59E0B',
   },
   statusText: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#10B981',
+    color: '#64748B',
     letterSpacing: 0.5,
+  },
+  statusTextOnline: {
+    color: '#06B6D4',
+  },
+  statusTextOffline: {
+    color: '#EF4444',
+  },
+  statusTextChecking: {
+    color: '#F59E0B',
   },
   scrollContent: {
     paddingTop: 24,
@@ -277,10 +373,43 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 4,
   },
+  connectButtonDisabled: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+    borderWidth: 1,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  connectButtonChecking: {
+    backgroundColor: '#1E293B',
+    borderColor: '#F59E0B',
+    borderWidth: 1,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   connectButtonText: {
     fontSize: 15,
     fontWeight: '800',
     color: '#090A12',
+  },
+  connectButtonTextDisabled: {
+    color: '#475569',
+  },
+  connectButtonTextChecking: {
+    color: '#F59E0B',
+  },
+  offlineWarningText: {
+    fontSize: 11,
+    color: '#EF4444',
+    lineHeight: 16,
+    fontWeight: '600',
+    marginTop: 10,
+    textAlign: 'center',
+    backgroundColor: 'rgba(239, 68, 68, 0.06)',
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.15)',
   },
   ipSuggestions: {
     flexDirection: 'row',
