@@ -22,15 +22,17 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
   const [ipInput, setIpInput] = useState('192.168.1.1');
   const [isFocused, setIsFocused] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean | 'checking'>('checking');
+  const [hasManuallyEdited, setHasManuallyEdited] = useState(false);
+  const [discoveredAutomatically, setDiscoveredAutomatically] = useState(false);
 
-  // Deteksi status koneksi gateway secara dinamis
-  const checkConnection = async (ipToTest: string) => {
+  // Deteksi status koneksi gateway secara dinamis dengan Auto-Discovery
+  const checkConnection = async (ipToTest: string, shouldAutoDiscover = false) => {
     try {
       const cleanIp = ipToTest.trim();
       const targetUrl = /^https?:\/\//i.test(cleanIp) ? cleanIp : `http://${cleanIp}`;
       
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      const timeoutId = setTimeout(() => controller.abort(), 1800); // timeout cepat 1.8 detik
       
       // Lakukan request GET ringan ke IP modem
       await fetch(targetUrl, {
@@ -41,25 +43,77 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
       
       clearTimeout(timeoutId);
       setIsOnline(true);
+      return true; // online
     } catch (error) {
-      // Jika fetch gagal (koneksi terputus/off), maka dianggap offline
+      // Jika fetch gagal dan kita ingin mencoba auto-discover (hanya jika user belum edit manual)
+      if (shouldAutoDiscover && !hasManuallyEdited) {
+        setIsOnline('checking');
+        
+        // Saring daftar IP alternatif selain yang baru saja dicoba
+        const alternatives = ['192.168.1.1', '192.168.0.1', '10.0.0.1'].filter(
+          ip => ip !== ipToTest.trim()
+        );
+        
+        for (const altIp of alternatives) {
+          try {
+            const altUrl = `http://${altIp}`;
+            const altController = new AbortController();
+            const altTimeoutId = setTimeout(() => altController.abort(), 1200); // timeout sangat cepat 1.2 detik
+            
+            await fetch(altUrl, {
+              method: 'GET',
+              signal: altController.signal,
+              headers: { 'Cache-Control': 'no-cache' }
+            });
+            
+            clearTimeout(altTimeoutId);
+            
+            // Jika berhasil menemukan IP alternatif yang merespons:
+            setIpInput(altIp); // Ubah input secara otomatis!
+            setIsOnline(true);  // Set online!
+            setDiscoveredAutomatically(true);
+            return true;
+          } catch (e) {
+            // Lanjut mencoba IP alternatif berikutnya
+          }
+        }
+      }
+      
+      // Jika semua alternatif gagal
       setIsOnline(false);
+      return false; // offline
     }
   };
 
   useEffect(() => {
-    checkConnection(ipInput);
+    // Jalankan auto-discovery pertama kali saat aplikasi dibuka
+    checkConnection(ipInput, !hasManuallyEdited);
+
     const interval = setInterval(() => {
-      checkConnection(ipInput);
+      // Untuk periodik, cek koneksi IP aktif saja tanpa auto-discovery agar tidak mengganggu ketikan pengguna
+      checkConnection(ipInput, false);
     }, 6000);
+
     return () => clearInterval(interval);
-  }, [ipInput]);
+  }, [ipInput, hasManuallyEdited]);
 
   const handleOpenGateway = () => {
     const cleanIp = ipInput.trim();
     if (cleanIp && isOnline === true) {
       onOpenGateway(cleanIp);
     }
+  };
+
+  const handleManualChange = (val: string) => {
+    setIpInput(val);
+    setHasManuallyEdited(true);
+    setDiscoveredAutomatically(false);
+  };
+
+  const handleSuggestionPress = (val: string) => {
+    setIpInput(val);
+    setHasManuallyEdited(true);
+    setDiscoveredAutomatically(false);
   };
 
   return (
@@ -117,7 +171,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
               <TextInput
                 style={styles.textInput}
                 value={ipInput}
-                onChangeText={setIpInput}
+                onChangeText={handleManualChange}
                 placeholder="192.168.1.1"
                 placeholderTextColor="#475569"
                 keyboardType="numeric"
@@ -147,6 +201,12 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
               </Text>
             </TouchableOpacity>
 
+            {discoveredAutomatically && isOnline === true && (
+              <Text style={styles.discoveredText}>
+                ✨ IP Modem terdeteksi otomatis pada {ipInput}!
+              </Text>
+            )}
+
             {isOnline === false && (
               <Text style={styles.offlineWarningText}>
                 ⚠️ Ponsel Anda offline atau tidak terhubung ke WiFi modem. Silakan aktifkan WiFi dan sambungkan ke jaringan router {ipInput} untuk melanjutkan.
@@ -154,13 +214,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
             )}
 
             <View style={styles.ipSuggestions}>
-              <TouchableOpacity onPress={() => setIpInput('192.168.1.1')} style={styles.suggestionBadge}>
+              <TouchableOpacity onPress={() => handleSuggestionPress('192.168.1.1')} style={styles.suggestionBadge}>
                 <Text style={styles.suggestionText}>192.168.1.1</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => setIpInput('192.168.0.1')} style={styles.suggestionBadge}>
+              <TouchableOpacity onPress={() => handleSuggestionPress('192.168.0.1')} style={styles.suggestionBadge}>
                 <Text style={styles.suggestionText}>192.168.0.1</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => setIpInput('10.0.0.1')} style={styles.suggestionBadge}>
+              <TouchableOpacity onPress={() => handleSuggestionPress('10.0.0.1')} style={styles.suggestionBadge}>
                 <Text style={styles.suggestionText}>10.0.0.1</Text>
               </TouchableOpacity>
             </View>
@@ -410,6 +470,19 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: 'rgba(239, 68, 68, 0.15)',
+  },
+  discoveredText: {
+    fontSize: 11,
+    color: '#06B6D4',
+    lineHeight: 16,
+    fontWeight: '700',
+    marginTop: 10,
+    textAlign: 'center',
+    backgroundColor: 'rgba(6, 182, 212, 0.06)',
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(6, 182, 212, 0.15)',
   },
   ipSuggestions: {
     flexDirection: 'row',
