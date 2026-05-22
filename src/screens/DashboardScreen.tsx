@@ -316,7 +316,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           </TouchableOpacity>
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>NetGateway • Dikembangkan Secara Mandiri</Text>
+            <Text style={styles.footerBrandText}>NUSANTARA NETWORK</Text>
+            <Text style={styles.footerPowerText}>
+              Powered By <Text style={styles.footerDexaText}>DEXA</Text><Text style={styles.footerNetText}>NET</Text>
+            </Text>
           </View>
         </ScrollView>
       </View>
@@ -633,11 +636,27 @@ const styles = StyleSheet.create({
   },
   footer: {
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 26,
+    marginBottom: 10,
   },
-  footerText: {
+  footerBrandText: {
+    fontSize: 13,
+    color: '#475569',
+    fontWeight: '700',
+    letterSpacing: 1.5,
+  },
+  footerPowerText: {
     fontSize: 11,
-    color: '#334155',
+    color: '#64748B',
     fontWeight: '600',
+    marginTop: 4,
+  },
+  footerDexaText: {
+    color: '#3B82F6',
+    fontWeight: '800',
+  },
+  footerNetText: {
+    color: '#F97316',
+    fontWeight: '800',
   },
 });
