@@ -745,9 +745,6 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
                 <View style={styles.cardInputGroup}>
                   <View style={styles.inputLabelHeader}>
                     <Text style={styles.inputLabel}>Nama WiFi Baru (SSID)</Text>
-                    {currentSsid ? (
-                      <Text style={styles.inputSubLabel}>Aktif: <Text style={{ color: '#06B6D4', fontWeight: '800' }}>{currentSsid}</Text></Text>
-                    ) : null}
                   </View>
                   <TextInput
                     style={styles.formTextInput}
@@ -763,9 +760,6 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
                 <View style={styles.cardInputGroup}>
                   <View style={styles.inputLabelHeader}>
                     <Text style={styles.inputLabel}>Password WiFi Baru</Text>
-                    {currentPassword ? (
-                      <Text style={styles.inputSubLabel}>Aktif: <Text style={{ color: '#06B6D4', fontWeight: '800' }}>{securePassword ? '••••••••' : currentPassword}</Text></Text>
-                    ) : null}
                   </View>
                   <View style={styles.passwordInputWrapper}>
                     <TextInput
