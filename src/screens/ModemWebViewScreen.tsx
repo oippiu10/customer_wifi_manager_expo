@@ -220,6 +220,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
   const [showWebView, setShowWebView] = useState(false); // Default: hidden (hanya tampil progress & native form)
   const [automationError, setAutomationError] = useState<string | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [securePassword, setSecurePassword] = useState(true); // Default: true (disembunyikan)
   const formHeightAnim = useRef(new Animated.Value(0)).current;
 
   // Timer batas waktu otomasi (Timeout 30 detik untuk pencegahan stuck)
@@ -763,18 +764,28 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
                   <View style={styles.inputLabelHeader}>
                     <Text style={styles.inputLabel}>Password WiFi Baru</Text>
                     {currentPassword ? (
-                      <Text style={styles.inputSubLabel}>Aktif: <Text style={{ color: '#06B6D4', fontWeight: '800' }}>{currentPassword}</Text></Text>
+                      <Text style={styles.inputSubLabel}>Aktif: <Text style={{ color: '#06B6D4', fontWeight: '800' }}>{securePassword ? '••••••••' : currentPassword}</Text></Text>
                     ) : null}
                   </View>
-                  <TextInput
-                    style={styles.formTextInput}
-                    value={newPassword}
-                    onChangeText={setNewPassword}
-                    placeholder="Masukkan password WiFi baru"
-                    placeholderTextColor="#475569"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
+                  <View style={styles.passwordInputWrapper}>
+                    <TextInput
+                      style={styles.formTextInputWithIcon}
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      placeholder="Masukkan password WiFi baru"
+                      placeholderTextColor="#475569"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      secureTextEntry={securePassword}
+                    />
+                    <TouchableOpacity 
+                      style={styles.eyeButton} 
+                      onPress={() => setSecurePassword(!securePassword)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.eyeIconText}>{securePassword ? '👁️' : '🙈'}</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
                 {saveStatus === 'saving' ? (
@@ -871,15 +882,25 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
 
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Password WiFi (Minimal 8 Karakter)</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={newPassword}
-                  onChangeText={setNewPassword}
-                  placeholder="Masukkan password WiFi baru"
-                  placeholderTextColor="#475569"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
+                <View style={styles.passwordInputWrapper}>
+                  <TextInput
+                    style={styles.textInputWithIcon}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    placeholder="Masukkan password WiFi baru"
+                    placeholderTextColor="#475569"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    secureTextEntry={securePassword}
+                  />
+                  <TouchableOpacity 
+                    style={styles.eyeButton} 
+                    onPress={() => setSecurePassword(!securePassword)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.eyeIconText}>{securePassword ? '👁️' : '🙈'}</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
 
               {saveStatus === 'saving' ? (
@@ -1295,5 +1316,49 @@ const styles = StyleSheet.create({
     marginTop: 6,
     textAlign: 'center',
     fontWeight: '500',
+  },
+  // ── Password Toggle Styles ─────────────────────────────────
+  passwordInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'relative',
+    width: '100%',
+  },
+  formTextInputWithIcon: {
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 12,
+    height: 52,
+    paddingLeft: 16,
+    paddingRight: 48,
+    fontSize: 15,
+    color: '#F8FAFC',
+    fontWeight: '600',
+    flex: 1,
+  },
+  textInputWithIcon: {
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 10,
+    height: 48,
+    paddingLeft: 16,
+    paddingRight: 44,
+    fontSize: 14,
+    color: '#F8FAFC',
+    fontWeight: '600',
+    flex: 1,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 0,
+    height: '100%',
+    width: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  eyeIconText: {
+    fontSize: 16,
   },
 });
