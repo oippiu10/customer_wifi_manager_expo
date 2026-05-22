@@ -773,7 +773,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
                       onPress={() => setSecurePassword(!securePassword)}
                       activeOpacity={0.7}
                     >
-                      <Text style={styles.eyeIconText}>{securePassword ? '👁️' : '🙈'}</Text>
+                      <Text style={styles.eyeIconText}>{securePassword ? '👁️' : '🔒'}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -888,7 +888,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
                     onPress={() => setSecurePassword(!securePassword)}
                     activeOpacity={0.7}
                   >
-                    <Text style={styles.eyeIconText}>{securePassword ? '👁️' : '🙈'}</Text>
+                    <Text style={styles.eyeIconText}>{securePassword ? '👁️' : '🔒'}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
