@@ -7,6 +7,10 @@ import {
   ActivityIndicator,
   Animated,
   Alert,
+  TextInput,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
@@ -181,6 +185,34 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
   const [stepWlan, setStepWlan]           = useState<StepStatus>('idle');
   const cardOpacity = useRef(new Animated.Value(0)).current;
 
+  // States untuk membaca & menyimpan data WiFi (SSID/Password) secara native
+  const [currentSsid, setCurrentSsid] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newSsid, setNewSsid] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [isWlanLoaded, setIsWlanLoaded] = useState(false);
+  const [showWlanForm, setShowWlanForm] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const formHeightAnim = useRef(new Animated.Value(0)).current;
+
+  // Efek transisi spring untuk form edit WiFi ketika data WLAN terdeteksi
+  useEffect(() => {
+    if (showWlanForm) {
+      Animated.spring(formHeightAnim, {
+        toValue: 1,
+        tension: 40,
+        friction: 7,
+        useNativeDriver: true
+      }).start();
+    } else {
+      Animated.timing(formHeightAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true
+      }).start();
+    }
+  }, [showWlanForm]);
+
   const showCard = () => {
     setShowProgress(true);
     Animated.timing(cardOpacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
@@ -295,6 +327,103 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
     `);
   };
 
+  const injectReadWlanDetails = () => {
+    if (navPhaseRef.current !== 'done') return; // Hanya baca setelah selesai navigasi
+    webViewRef.current?.injectJavaScript(`
+      (function() {
+        function getAllDocs() {
+          var docs = [document];
+          try { for (var f = 0; f < window.frames.length; f++) { try { docs.push(window.frames[f].document); } catch(e) {} } } catch(e) {}
+          try { var ifs = document.querySelectorAll('iframe'); for (var fi = 0; fi < ifs.length; fi++) { try { if (ifs[fi].contentDocument) docs.push(ifs[fi].contentDocument); } catch(e) {} } } catch(e) {}
+          return docs;
+        }
+        
+        var docs = getAllDocs();
+        for (var i = 0; i < docs.length; i++) {
+          var doc = docs[i];
+          var ssidEl = doc.getElementById('Frm_ESSID') || doc.getElementById('ESSID');
+          var passEl = doc.getElementById('Frm_KeyPassphrase') || doc.getElementById('KeyPassphrase');
+          if (ssidEl || passEl) {
+            var ssidVal = ssidEl ? (ssidEl.value || '') : '';
+            var passVal = passEl ? (passEl.value || '') : '';
+            
+            // Fallback jika text input masih kosong tapi ada hidden input bawaan
+            if (!ssidVal) {
+              var hiddenSsid = doc.getElementById('ESSID');
+              if (hiddenSsid) ssidVal = hiddenSsid.value;
+            }
+            if (!passVal) {
+              var hiddenPass = doc.getElementById('KeyPassphrase');
+              if (hiddenPass) passVal = hiddenPass.value;
+            }
+            
+            if (ssidVal || passVal) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'WLAN_DATA_READ',
+                ssid: ssidVal,
+                password: passVal
+              }));
+              return true;
+            }
+          }
+        }
+        return false;
+      })();
+      true;
+    `);
+  };
+
+  const injectSaveWlanDetails = (ssid: string, password: string) => {
+    setSaveStatus('saving');
+    webViewRef.current?.injectJavaScript(`
+      (function() {
+        function getAllDocs() {
+          var docs = [document];
+          try { for (var f = 0; f < window.frames.length; f++) { try { docs.push(window.frames[f].document); } catch(e) {} } } catch(e) {}
+          try { var ifs = document.querySelectorAll('iframe'); for (var fi = 0; fi < ifs.length; fi++) { try { if (ifs[fi].contentDocument) docs.push(ifs[fi].contentDocument); } catch(e) {} } } catch(e) {}
+          return docs;
+        }
+
+        function setVal(el, val) {
+          if (!el) return false;
+          el.value = val;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        }
+
+        var docs = getAllDocs();
+        for (var i = 0; i < docs.length; i++) {
+          var doc = docs[i];
+          var ssidEl = doc.getElementById('Frm_ESSID');
+          var passEl = doc.getElementById('Frm_KeyPassphrase');
+          
+          if (ssidEl && passEl) {
+            setVal(ssidEl, ${JSON.stringify(ssid)});
+            setVal(passEl, ${JSON.stringify(password)});
+            
+            // Cari tombol submit bawaan modem
+            var submitBtn = doc.getElementById('Btn_Submit');
+            if (submitBtn) {
+              submitBtn.click();
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WLAN_SAVE_SUBMITTED' }));
+              return true;
+            }
+            
+            // Fallback panggil fungsi pageSubmit
+            if (typeof doc.defaultView.pageSubmit === 'function') {
+              doc.defaultView.pageSubmit();
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WLAN_SAVE_SUBMITTED' }));
+              return true;
+            }
+          }
+        }
+        return false;
+      })();
+      true;
+    `);
+  };
+
 
   const handleWebViewMessage = (event: any) => {
     try {
@@ -324,6 +453,26 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
         setStepWlan('done');
         // Auto-hide card setelah 2.5 detik
         setTimeout(hideCard, 2500);
+        
+        // Mulai pembacaan data WLAN secara periodik agar terjamin
+        setTimeout(injectReadWlanDetails, 3000);
+        setTimeout(injectReadWlanDetails, 4500);
+        setTimeout(injectReadWlanDetails, 6000);
+      } else if (data.type === 'WLAN_DATA_READ') {
+        setCurrentSsid(data.ssid);
+        setCurrentPassword(data.password);
+        setNewSsid(data.ssid);
+        setNewPassword(data.password);
+        setIsWlanLoaded(true);
+        setShowWlanForm(true);
+        setSaveStatus('idle');
+      } else if (data.type === 'WLAN_SAVE_SUBMITTED') {
+        setSaveStatus('success');
+        Alert.alert(
+          '🎉 Berhasil Disimpan!',
+          'Perubahan Nama & Password WiFi telah dikirim ke modem. HP Anda mungkin akan terputus sebentar dari WiFi karena modem melakukan restart nirkabel. Silakan sambungkan kembali HP Anda ke WiFi baru.',
+          [{ text: 'OK', onPress: () => setShowWlanForm(false) }]
+        );
       } else if (data.type === 'DEBUG_LINKS') {
         const frames = data.frameCount ?? 1;
         const links = (data.links as string[]);
@@ -364,8 +513,10 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
   );
 
   return (
-    <View style={styles.container}>
-
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       {/* Progress Card Otomasi */}
       {showProgress && (
         <Animated.View style={[styles.progressCard, { opacity: cardOpacity }]}>
@@ -427,6 +578,97 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
             </View>
           )}
         />
+
+        {/* Panel Form Edit WiFi (SSID/Password) Native */}
+        {showWlanForm && (
+          <Animated.View style={[
+            styles.wlanFormContainer,
+            {
+              transform: [
+                {
+                  translateY: formHeightAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [400, 0]
+                  })
+                }
+              ],
+              opacity: formHeightAnim
+            }
+          ]}>
+            <View style={styles.formHeader}>
+              <View style={styles.formTitleContainer}>
+                <Text style={styles.formTitle}>📶 Pengaturan WiFi Terdeteksi</Text>
+                <Text style={styles.formSubtitle}>Konfigurasi WiFi modem ZTE Anda</Text>
+              </View>
+              <TouchableOpacity 
+                style={styles.closeFormButton} 
+                onPress={() => setShowWlanForm(false)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.closeFormIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView 
+              style={styles.formScroll} 
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.formContent}>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Nama WiFi (SSID)</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={newSsid}
+                    onChangeText={setNewSsid}
+                    placeholder="Masukkan nama WiFi baru"
+                    placeholderTextColor="#475569"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Password WiFi (Minimal 8 Karakter)</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    placeholder="Masukkan password WiFi baru"
+                    placeholderTextColor="#475569"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+
+                {saveStatus === 'saving' ? (
+                  <View style={styles.savingContainer}>
+                    <ActivityIndicator size="small" color="#06B6D4" style={{ marginRight: 10 }} />
+                    <Text style={styles.savingText}>Mengirim perubahan ke modem...</Text>
+                  </View>
+                ) : (
+                  <TouchableOpacity 
+                    style={styles.saveButton}
+                    onPress={() => {
+                      if (!newSsid.trim()) {
+                        Alert.alert('Gagal', 'Nama WiFi tidak boleh kosong.');
+                        return;
+                      }
+                      if (newPassword.length < 8) {
+                        Alert.alert('Gagal', 'Password WiFi harus memiliki panjang minimal 8 karakter.');
+                        return;
+                      }
+                      injectSaveWlanDetails(newSsid, newPassword);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.saveButtonText}>💾 Simpan Perubahan WiFi</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </ScrollView>
+          </Animated.View>
+        )}
       </View>
 
       <View style={styles.navigationBar}>
@@ -440,7 +682,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
           <Text style={[styles.navText, !canGoForward && styles.disabledText]}>Maju  ▶</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -481,4 +723,120 @@ const styles = StyleSheet.create({
   disabledText:   { color: '#334155' },
   homeButton:     { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: 'rgba(6,182,212,0.1)', borderWidth: 1, borderColor: 'rgba(6,182,212,0.2)' },
   homeText:       { fontSize: 13, color: '#06B6D4', fontWeight: '800' },
+  // ── WLAN Form styles ───────────────────────────────────────
+  wlanFormContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#0F172A',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderTopWidth: 2,
+    borderColor: 'rgba(6,182,212,0.4)',
+    maxHeight: '65%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 20,
+  },
+  formHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  formTitleContainer: {
+    flex: 1,
+  },
+  formTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#06B6D4',
+  },
+  formSubtitle: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  closeFormButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeFormIcon: {
+    fontSize: 12,
+    color: '#94A3B8',
+    fontWeight: '700',
+  },
+  formScroll: {
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+  },
+  formContent: {
+    paddingVertical: 14,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#94A3B8',
+    marginBottom: 8,
+  },
+  textInput: {
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 10,
+    height: 48,
+    paddingHorizontal: 16,
+    fontSize: 14,
+    color: '#F8FAFC',
+    fontWeight: '600',
+  },
+  saveButton: {
+    backgroundColor: '#06B6D4',
+    height: 48,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 8,
+    shadowColor: '#06B6D4',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  saveButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  savingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(6,182,212,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(6,182,212,0.15)',
+    borderRadius: 10,
+    height: 48,
+    marginTop: 8,
+  },
+  savingText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#06B6D4',
+  },
 });
