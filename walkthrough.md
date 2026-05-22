@@ -17,15 +17,14 @@ Semua target utama untuk mengotomatisasi navigasi, penanganan kesalahan secara p
 - **Tampilan Error Page Elegant**: Membuka notifikasi error native premium dengan tombol untuk mereload kembali atau mengedit kredensial secara native.
 
 ### 🚪 3. Logout Otomatis & Aman Saat Kembali (`handleBackWithLogout`)
-- Begitu tombol **"Kembali"**, **"Menu Utama"**, atau tanda **"✕"** ditekan, aplikasi memicu fungsi `handleBackWithLogout()`.
+- Begitu tombol **"Kembali"**, **"Menu Utama"**, atau tanda **"✕"** tekanan, aplikasi memicu fungsi `handleBackWithLogout()`.
 - Menampilkan overlay merah yang aman: *"Mengakhiri Sesi... Menutup sesi aktif Anda pada portal modem secara aman"*.
 - Injeksi script untuk memicu logout di modem agar sesi tidak menyangkut dan mencegah error *"Session limit exceeded"*.
 
-### 🔒 4. Sistem Sensor & Hide/Show Password Premium (Sesuai Permintaan)
+### 🔒 4. Sistem Hide/Show Password Premium (Sesuai Permintaan)
 - **Default Hidden**: Kolom input password baru WiFi secara default menyembunyikan teks (`secureTextEntry={true}`) demi privasi pengguna.
 - **Tombol Tampilkan/Sembunyikan (👁️)**: Menambahkan tombol ikon mata di ujung kanan input. Pengguna dapat mengetuk ikon mata untuk melihat/menyembunyikan teks password yang sedang diketik secara bergantian.
-- **Sensor Label Aktif**: Informasi password lama yang saat ini sedang aktif di modem juga disensor dengan tanda `••••••••` secara default. Begitu tombol mata diklik, baik teks input baru maupun teks password aktif yang lama akan terbuka secara bersamaan! Ini sangat aman dan keren.
-- **Penjelasan Label Aktif**: Label "Aktif" di sebelah kanan label form berfungsi untuk **menampilkan konfigurasi SSID dan password WiFi lama yang saat ini sedang aktif pada modem** (dibaca langsung dari portal nirkabel). Ini membantu pengguna mengetahui konfigurasi sebelum memutuskan untuk mengubahnya.
+- **Sederhana & Bersih**: Menghapus label "Aktif" SSID & Password yang sebelumnya tampil di sebelah kanan label form agar desain formulir terlihat 100% fokus, minimalis, dan sangat bersih tanpa distraksi informasi yang tidak diperlukan.
 
 ---
 
@@ -34,7 +33,7 @@ Semua target utama untuk mengotomatisasi navigasi, penanganan kesalahan secara p
 ### [ModemWebViewScreen.tsx](file:///c:/laragon/www/customer_wifi_manager_expo/src/screens/ModemWebViewScreen.tsx)
 - Menambahkan state `securePassword` untuk mengontrol visibilitas password.
 - Memodifikasi input password di kedua form (fullscreen native form dan bottom sheet overlay) untuk mendukung `secureTextEntry` dan tombol mata.
-- Menambahkan element penunjuk sensor `••••••••` pada bagian label `currentPassword` aktif.
+- Menghapus label "Aktif" pada bagian atas kolom input SSID dan password baru.
 - Menambahkan style `passwordInputWrapper`, `formTextInputWithIcon`, `textInputWithIcon`, `eyeButton`, dan `eyeIconText` pada StyleSheet.
 
 ---
@@ -48,4 +47,5 @@ Seluruh modifikasi kode telah di-stage dan di-commit dengan aman ke Git lokal un
 - **Commit 5**: `feat: sembunyikan WebView modem secara visual untuk memberikan pengalaman app 100% native`
 - **Commit 6**: `feat: tambah penanganan error native terpadu & logout otomatis saat kembali`
 - **Commit 7**: `feat: tambah toggle show/hide password (eye icon) dan sensor aman pada label aktif`
-- **Commit 8**: `docs: update walkthrough dengan panduan keamanan form password`
+- **Commit 8**: `feat: hapus label aktif SSID dan password yang tidak diperlukan`
+- **Commit 9**: `docs: update walkthrough dengan panduan keamanan form password tanpa label aktif`
