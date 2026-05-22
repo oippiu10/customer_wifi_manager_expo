@@ -660,9 +660,11 @@ const styles = StyleSheet.create({
   footerDexaText: {
     color: '#3B82F6',
     fontWeight: '800',
+    fontSize: 11.5,
   },
   footerNetText: {
     color: '#F97316',
     fontWeight: '800',
+    fontSize: 11.5,
   },
 });
