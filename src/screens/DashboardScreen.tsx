@@ -16,9 +16,16 @@ const { width } = Dimensions.get('window');
 interface DashboardScreenProps {
   onNavigate: (screen: string) => void;
   onOpenGateway: (ip: string) => void;
+  isTechMode: boolean;
+  setIsTechMode: (val: boolean) => void;
 }
 
-export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, onOpenGateway }) => {
+export const DashboardScreen: React.FC<DashboardScreenProps> = ({ 
+  onNavigate, 
+  onOpenGateway,
+  isTechMode,
+  setIsTechMode
+}) => {
   const [ipInput, setIpInput] = useState('192.168.1.1');
   const [isFocused, setIsFocused] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean | 'checking'>('checking');
@@ -28,7 +35,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
   // States untuk Secret Technician Mode (Ketuk Logo 5x)
   const [lastTap, setLastTap] = useState(0);
   const [tapCount, setTapCount] = useState(0);
-  const [isTechMode, setIsTechMode] = useState(false);
 
   const handleLogoPress = () => {
     const now = Date.now();

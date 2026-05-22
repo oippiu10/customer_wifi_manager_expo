@@ -10,6 +10,7 @@ import { NetworkGuideScreen } from '../screens/NetworkGuideScreen';
 export const AppNavigator: React.FC = () => {
   const [currentScreen, setCurrentScreen] = useState<string>('splash');
   const [targetIp, setTargetIp] = useState<string>('192.168.1.1');
+  const [isTechMode, setIsTechMode] = useState<boolean>(false);
 
   useEffect(() => {
     const backAction = () => {
@@ -62,6 +63,8 @@ export const AppNavigator: React.FC = () => {
           <DashboardScreen 
             onNavigate={(screen: string) => navigateTo(screen)} 
             onOpenGateway={startWebView}
+            isTechMode={isTechMode}
+            setIsTechMode={setIsTechMode}
           />
         );
         
