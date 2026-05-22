@@ -1,41 +1,41 @@
-# 📶 Walkthrough Keberhasilan Otomasi Modem ZTE & Sistem Handshake Lanjutan
+# 📶 Walkthrough Keberhasilan Otomasi Modem ZTE & Keamanan Form Premium
 
-Semua target utama untuk mengotomatisasi navigasi, penanganan kesalahan secara premium, dan penutupan sesi yang aman pada modem ZTE di dalam aplikasi **Customer WiFi Manager (Expo)** telah berhasil diselesaikan dengan sukses!
+Semua target utama untuk mengotomatisasi navigasi, penanganan kesalahan secara premium, penutupan sesi yang aman, dan sistem input password yang aman pada modem ZTE di dalam aplikasi **Customer WiFi Manager (Expo)** telah berhasil diselesaikan dengan sukses!
 
 ---
 
 ## 🚀 Fitur yang Berhasil Diimplementasikan
 
 ### 1. 🤖 Progress Card Otomasi Premium (Visual Senyap)
-- WebView sekarang disembunyikan secara visual (`width: 0, height: 0, opacity: 0, position: 'absolute'`) untuk memberikan sensasi aplikasi 100% native.
-- Menampilkan halaman loading fullscreen premium berlatar gelap elegan dengan spinner besar dan teks: *"Mengakses Konfigurasi... Menghubungkan ke router Anda secara aman"*.
-- Status langkah otomasi (Login → Network → WLAN) tetap diperbarui secara langsung di halaman tersebut.
+- WebView disembunyikan secara visual (`width: 0, height: 0, opacity: 0, position: 'absolute'`) untuk memberikan sensasi aplikasi 100% native.
+- Menampilkan halaman loading fullscreen premium berlatar gelap elegan dengan spinner besar dan langkah live progress.
 
 ### 2. 🛡️ Sistem Penanganan Error & Notifikasi Native (Bulletproof)
-Untuk mengantisipasi hal-hal tak terduga yang terjadi pada pengguna, sistem penanganan error premium native kini diaktifkan:
-- **Deteksi Login Gagal**: Script otomatis mendeteksi jika modem menampilkan pesan error (misal: username/password salah, atau session penuh) dan mengirimkan event `LOGIN_FAILED` ke React Native.
-- **Deteksi Timeout**: Jika koneksi lambat/stuck dan proses otomasi WLAN belum selesai dalam 30 detik, sistem otomatis menghentikan proses dan memicu status timeout.
-- **Deteksi Network/HTTP Error**: WebView `onError` dan `onHttpError` mendeteksi jika modem mati, IP salah, atau server modem mengirimkan kode HTTP ≥ 400.
-- **Tampilan Error Page Elegant**: Pengguna akan melihat notifikasi error berlatar gelap yang rapi dengan tombol **"Coba Hubungkan Kembali"** (untuk mereload proses dari awal) dan **"Edit Kredensial & IP"** (untuk kembali merubah data input).
+- **Deteksi Login Gagal**: Script otomatis mendeteksi pesan error bawaan modem ZTE dan mengirimkannya ke React Native.
+- **Deteksi Timeout**: Batas waktu 30 detik ditambahkan agar proses otomatis tidak menggantung selamanya saat koneksi modem macet.
+- **Deteksi Network/HTTP Error**: Menggunakan callback `onError` dan `onHttpError` pada WebView.
+- **Tampilan Error Page Elegant**: Membuka notifikasi error native premium dengan tombol untuk mereload kembali atau mengedit kredensial secara native.
 
 ### 🚪 3. Logout Otomatis & Aman Saat Kembali (`handleBackWithLogout`)
-Kebanyakan modem (terutama ZTE) membatasi jumlah sesi login aktif (hanya membolehkan 1 perangkat/sesi masuk sekaligus). Jika pengguna keluar tanpa melakukan logout, modem akan mengunci sesi tersebut dan memunculkan error *"Session limit exceeded"* ketika aplikasi dicoba dibuka kembali.
-- Begitu tombol **"Kembali"**, **"Menu Utama"**, atau tanda **"✕"** ditekan, aplikasi akan memicu fungsi `handleBackWithLogout()`.
-- Menampilkan screen blocker dengan overlay merah elegan: *"Mengakhiri Sesi... Menutup sesi aktif Anda pada portal modem secara aman"*.
-- Aplikasi secara otomatis menginjeksi perintah JavaScript untuk memicu logout di modem (mencoba mengeksekusi `onClickLogout()`, mengklik elemen link Logout, atau men-submit form `flogout`).
-- Menunggu 1.2 detik agar modem berhasil memproses logout, lalu secara aman memanggil callback `onBack()`.
+- Begitu tombol **"Kembali"**, **"Menu Utama"**, atau tanda **"✕"** ditekan, aplikasi memicu fungsi `handleBackWithLogout()`.
+- Menampilkan overlay merah yang aman: *"Mengakhiri Sesi... Menutup sesi aktif Anda pada portal modem secara aman"*.
+- Injeksi script untuk memicu logout di modem agar sesi tidak menyangkut dan mencegah error *"Session limit exceeded"*.
+
+### 🔒 4. Sistem Sensor & Hide/Show Password Premium (Sesuai Permintaan)
+- **Default Hidden**: Kolom input password baru WiFi secara default menyembunyikan teks (`secureTextEntry={true}`) demi privasi pengguna.
+- **Tombol Tampilkan/Sembunyikan (👁️)**: Menambahkan tombol ikon mata di ujung kanan input. Pengguna dapat mengetuk ikon mata untuk melihat/menyembunyikan teks password yang sedang diketik secara bergantian.
+- **Sensor Label Aktif**: Informasi password lama yang saat ini sedang aktif di modem juga disensor dengan tanda `••••••••` secara default. Begitu tombol mata diklik, baik teks input baru maupun teks password aktif yang lama akan terbuka secara bersamaan! Ini sangat aman dan keren.
+- **Penjelasan Label Aktif**: Label "Aktif" di sebelah kanan label form berfungsi untuk **menampilkan konfigurasi SSID dan password WiFi lama yang saat ini sedang aktif pada modem** (dibaca langsung dari portal nirkabel). Ini membantu pengguna mengetahui konfigurasi sebelum memutuskan untuk mengubahnya.
 
 ---
 
 ## 🛠️ Ringkasan Perubahan Kode
 
 ### [ModemWebViewScreen.tsx](file:///c:/laragon/www/customer_wifi_manager_expo/src/screens/ModemWebViewScreen.tsx)
-- Menambahkan state `automationError`, `isLoggingOut`, dan timer timeout 30 detik di dalam `useEffect`.
-- Mengimplementasikan `handleBackWithLogout` untuk membungkus semua tombol keluar.
-- Memodifikasi `AUTO_FILL_SCRIPT` dengan detector real-time `checkLoginError()` yang memancarkan event `LOGIN_FAILED`.
-- Menambahkan layout UI Native Error Screen dan Screen Blocker Logout.
-- Melengkapi WebView props dengan callback `onError` dan `onHttpError`.
-- Menambahkan styling lengkap untuk mendukung elemen-elemen baru.
+- Menambahkan state `securePassword` untuk mengontrol visibilitas password.
+- Memodifikasi input password di kedua form (fullscreen native form dan bottom sheet overlay) untuk mendukung `secureTextEntry` dan tombol mata.
+- Menambahkan element penunjuk sensor `••••••••` pada bagian label `currentPassword` aktif.
+- Menambahkan style `passwordInputWrapper`, `formTextInputWithIcon`, `textInputWithIcon`, `eyeButton`, dan `eyeIconText` pada StyleSheet.
 
 ---
 
@@ -47,3 +47,5 @@ Seluruh modifikasi kode telah di-stage dan di-commit dengan aman ke Git lokal un
 - **Commit 4**: `docs: tambah file walkthrough resmi ke workspace proyek`
 - **Commit 5**: `feat: sembunyikan WebView modem secara visual untuk memberikan pengalaman app 100% native`
 - **Commit 6**: `feat: tambah penanganan error native terpadu & logout otomatis saat kembali`
+- **Commit 7**: `feat: tambah toggle show/hide password (eye icon) dan sensor aman pada label aktif`
+- **Commit 8**: `docs: update walkthrough dengan panduan keamanan form password`
