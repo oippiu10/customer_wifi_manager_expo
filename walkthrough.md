@@ -15,9 +15,10 @@ Semua target utama untuk mengotomatisasi navigasi, penanganan kesalahan secara p
 - **Deteksi Timeout**: Batas waktu 30 detik ditambahkan agar proses otomatis tidak menggantung selamanya saat koneksi modem macet.
 - **Deteksi Network/HTTP Error**: Menggunakan callback `onError` dan `onHttpError` pada WebView.
 - **Tampilan Error Page Elegant**: Membuka notifikasi error native premium dengan tombol untuk mereload kembali atau mengedit kredensial secara native.
+- **Zero Spam Popups**: Menghapus `Alert.alert` bawaan pada modul `DEBUG_LINKS` yang sebelumnya memborbardir pengguna dengan 5-6 popup dialog "OK" ketika proses pencarian menu nirkabel mengalami kendala koneksi atau lambat. Data diagnosa sekarang dialihkan dengan aman ke `console.warn` pengembang tanpa mengganggu UI pengguna.
 
 ### 🚪 3. Logout Otomatis & Aman Saat Kembali (`handleBackWithLogout`)
-- Begitu tombol **"Kembali"**, **"Menu Utama"**, atau tanda **"✕"** tekanan, aplikasi memicu fungsi `handleBackWithLogout()`.
+- Begitu tombol **"Kembali"**, **"Menu Utama"**, atau tanda **"✕"** ditekan, aplikasi memicu fungsi `handleBackWithLogout()`.
 - Menampilkan overlay merah yang aman: *"Mengakhiri Sesi... Menutup sesi aktif Anda pada portal modem secara aman"*.
 - Injeksi script untuk memicu logout di modem agar sesi tidak menyangkut dan mencegah error *"Session limit exceeded"*.
 
@@ -32,8 +33,9 @@ Semua target utama untuk mengotomatisasi navigasi, penanganan kesalahan secara p
 
 ### [ModemWebViewScreen.tsx](file:///c:/laragon/www/customer_wifi_manager_expo/src/screens/ModemWebViewScreen.tsx)
 - Menambahkan state `securePassword` untuk mengontrol visibilitas password.
-- Memodifikasi input password di kedua form (fullscreen native form dan bottom sheet overlay) untuk mendukung `secureTextEntry` dan tombol mata.
+- Memodifikasi input password di kedua form untuk mendukung `secureTextEntry` dan tombol mata.
 - Menghapus label "Aktif" pada bagian atas kolom input SSID dan password baru.
+- Menghapus `Alert.alert` pada event `DEBUG_LINKS` untuk menghilangkan spam dialog popups.
 - Menambahkan style `passwordInputWrapper`, `formTextInputWithIcon`, `textInputWithIcon`, `eyeButton`, dan `eyeIconText` pada StyleSheet.
 
 ---
@@ -48,4 +50,5 @@ Seluruh modifikasi kode telah di-stage dan di-commit dengan aman ke Git lokal un
 - **Commit 6**: `feat: tambah penanganan error native terpadu & logout otomatis saat kembali`
 - **Commit 7**: `feat: tambah toggle show/hide password (eye icon) dan sensor aman pada label aktif`
 - **Commit 8**: `feat: hapus label aktif SSID dan password yang tidak diperlukan`
-- **Commit 9**: `docs: update walkthrough dengan panduan keamanan form password tanpa label aktif`
+- **Commit 9**: `fix: hapus alert debug link spam yang memunculkan banyak popup OK`
+- **Commit 10**: `docs: update walkthrough dengan panduan zero spam popups`
