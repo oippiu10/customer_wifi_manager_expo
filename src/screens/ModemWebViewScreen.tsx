@@ -559,11 +559,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
       } else if (data.type === 'DEBUG_LINKS') {
         const frames = data.frameCount ?? 1;
         const links = (data.links as string[]);
-        Alert.alert(
-          `🔍 Debug: ${data.stage}`,
-          `Frame: ${frames}\n\nElemen yang ditemukan:\n${links.slice(0, 20).map((l, i) => `${i+1}. ${l}`).join('\n')}`,
-          [{ text: 'OK' }]
-        );
+        // Hanya log ke console agar tidak mengganggu pengguna dengan spam popup banyak kali
         console.warn('[MODEM NAV DEBUG]', data.stage, 'frames:', frames, links);
       }
     } catch (_) {}
