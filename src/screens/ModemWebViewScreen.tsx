@@ -193,6 +193,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
   const [isWlanLoaded, setIsWlanLoaded] = useState(false);
   const [showWlanForm, setShowWlanForm] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [showWebView, setShowWebView] = useState(false); // Default: hidden (hanya tampil progress & native form)
   const formHeightAnim = useRef(new Animated.Value(0)).current;
 
   // Efek transisi spring untuk form edit WiFi ketika data WLAN terdeteksi
@@ -517,36 +518,37 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* Progress Card Otomasi */}
-      {showProgress && (
-        <Animated.View style={[styles.progressCard, { opacity: cardOpacity }]}>
-          <View style={styles.progressHeader}>
-            <Text style={styles.progressTitle}>🤖 Otomasi Modem</Text>
-            <Text style={styles.progressSub}>Memproses, harap tunggu...</Text>
-          </View>
-          <View style={styles.progressDivider} />
-          <StepRow status={stepLogin}   label="Login otomatis" />
-          <StepRow status={stepNetwork} label="Membuka menu Network" />
-          <StepRow status={stepWlan}    label="Membuka pengaturan WLAN" />
-        </Animated.View>
-      )}
-
+      {/* Header Browser (hanya tampil jika showWebView aktif atau normal) */}
       <View style={styles.browserHeader}>
         <TouchableOpacity style={styles.closeButton} onPress={onBack} activeOpacity={0.7}>
           <Text style={styles.closeIcon}>✕</Text>
         </TouchableOpacity>
-        <View style={styles.addressBar}>
-          <Text style={styles.lockIcon}>🔒</Text>
-          <Text style={styles.addressText} numberOfLines={1}>
-            {currentUrl.replace(/^https?:\/\//i, '')}
-          </Text>
-        </View>
-        <TouchableOpacity style={styles.reloadButton} onPress={handleReload} activeOpacity={0.7}>
-          <Text style={styles.reloadIcon}>↻</Text>
+        
+        {showWebView ? (
+          <View style={styles.addressBar}>
+            <Text style={styles.lockIcon}>🔒</Text>
+            <Text style={styles.addressText} numberOfLines={1}>
+              {currentUrl.replace(/^https?:\/\//i, '')}
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.headerTitleContainer}>
+            <Text style={styles.headerTitle}>Manajer WiFi Pelanggan</Text>
+          </View>
+        )}
+
+        {/* Tombol Rahasia/Debug untuk memperlihatkan WebView jika diperlukan */}
+        <TouchableOpacity 
+          style={[styles.reloadButton, showWebView && styles.reloadButtonActive]} 
+          onPress={() => setShowWebView(!showWebView)} 
+          activeOpacity={0.7}
+        >
+          <Text style={styles.reloadIcon}>{showWebView ? '📺' : '🔍'}</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={styles.webArea}>
+      {/* Area WebView (Disembunyikan secara visual jika showWebView = false) */}
+      <View style={showWebView ? styles.webArea : styles.webAreaHidden}>
         <WebView
           ref={webViewRef}
           source={{ uri: targetUrl }}
@@ -578,47 +580,50 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
             </View>
           )}
         />
+      </View>
 
-        {/* Panel Form Edit WiFi (SSID/Password) Native */}
-        {showWlanForm && (
-          <Animated.View style={[
-            styles.wlanFormContainer,
-            {
-              transform: [
-                {
-                  translateY: formHeightAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [400, 0]
-                  })
-                }
-              ],
-              opacity: formHeightAnim
-            }
-          ]}>
-            <View style={styles.formHeader}>
-              <View style={styles.formTitleContainer}>
-                <Text style={styles.formTitle}>📶 Pengaturan WiFi Terdeteksi</Text>
-                <Text style={styles.formSubtitle}>Konfigurasi WiFi modem ZTE Anda</Text>
+      {/* UI UTAMA PENGGUNA (Hanya tampil jika showWebView = false) */}
+      {!showWebView && (
+        <View style={styles.mainContentArea}>
+          {!isWlanLoaded ? (
+            /* 1. TAMPILAN FULLSCREEN PROGRESS OTOMASI */
+            <View style={styles.fullscreenProgressContainer}>
+              <View style={styles.progressAnimationBox}>
+                <ActivityIndicator size="large" color="#06B6D4" style={{ marginBottom: 12 }} />
+                <Text style={styles.progressMainTitle}>Mengakses Konfigurasi...</Text>
+                <Text style={styles.progressMainSub}>Menghubungkan ke router Anda secara aman</Text>
               </View>
-              <TouchableOpacity 
-                style={styles.closeFormButton} 
-                onPress={() => setShowWlanForm(false)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.closeFormIcon}>✕</Text>
-              </TouchableOpacity>
-            </View>
+              
+              <View style={styles.progressStepsBox}>
+                <StepRow status={stepLogin} label="Masuk ke portal admin modem" />
+                <StepRow status={stepNetwork} label="Navigasi ke menu Network" />
+                <StepRow status={stepWlan} label="Membuka pengaturan parameter WLAN" />
+              </View>
 
+              <Text style={styles.footerNote}>Modem Anda sedang diatur secara otomatis. Harap tunggu...</Text>
+            </View>
+          ) : (
+            /* 2. TAMPILAN FULLSCREEN FORM NATIVE PENGATURAN WIFI */
             <ScrollView 
-              style={styles.formScroll} 
+              style={styles.fullscreenFormContainer}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              <View style={styles.formContent}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Nama WiFi (SSID)</Text>
+              <View style={styles.formContentBox}>
+                <View style={styles.formMainHeader}>
+                  <Text style={styles.formMainTitle}>📶 Pengaturan WiFi Terdeteksi</Text>
+                  <Text style={styles.formMainSubtitle}>Ubah Nama & Password WiFi Anda dengan instan</Text>
+                </View>
+
+                <View style={styles.cardInputGroup}>
+                  <View style={styles.inputLabelHeader}>
+                    <Text style={styles.inputLabel}>Nama WiFi Baru (SSID)</Text>
+                    {currentSsid ? (
+                      <Text style={styles.inputSubLabel}>Aktif: <Text style={{ color: '#06B6D4', fontWeight: '800' }}>{currentSsid}</Text></Text>
+                    ) : null}
+                  </View>
                   <TextInput
-                    style={styles.textInput}
+                    style={styles.formTextInput}
                     value={newSsid}
                     onChangeText={setNewSsid}
                     placeholder="Masukkan nama WiFi baru"
@@ -628,10 +633,15 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
                   />
                 </View>
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Password WiFi (Minimal 8 Karakter)</Text>
+                <View style={styles.cardInputGroup}>
+                  <View style={styles.inputLabelHeader}>
+                    <Text style={styles.inputLabel}>Password WiFi Baru</Text>
+                    {currentPassword ? (
+                      <Text style={styles.inputSubLabel}>Aktif: <Text style={{ color: '#06B6D4', fontWeight: '800' }}>{currentPassword}</Text></Text>
+                    ) : null}
+                  </View>
                   <TextInput
-                    style={styles.textInput}
+                    style={styles.formTextInput}
                     value={newPassword}
                     onChangeText={setNewPassword}
                     placeholder="Masukkan password WiFi baru"
@@ -642,46 +652,144 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
                 </View>
 
                 {saveStatus === 'saving' ? (
-                  <View style={styles.savingContainer}>
+                  <View style={styles.nativeSavingContainer}>
                     <ActivityIndicator size="small" color="#06B6D4" style={{ marginRight: 10 }} />
-                    <Text style={styles.savingText}>Mengirim perubahan ke modem...</Text>
+                    <Text style={styles.nativeSavingText}>Menerapkan perubahan ke modem...</Text>
                   </View>
                 ) : (
                   <TouchableOpacity 
-                    style={styles.saveButton}
+                    style={styles.nativeSaveButton}
                     onPress={() => {
                       if (!newSsid.trim()) {
                         Alert.alert('Gagal', 'Nama WiFi tidak boleh kosong.');
                         return;
                       }
                       if (newPassword.length < 8) {
-                        Alert.alert('Gagal', 'Password WiFi harus memiliki panjang minimal 8 karakter.');
+                        Alert.alert('Gagal', 'Password WiFi harus minimal 8 karakter.');
                         return;
                       }
                       injectSaveWlanDetails(newSsid, newPassword);
                     }}
                     activeOpacity={0.8}
                   >
-                    <Text style={styles.saveButtonText}>💾 Simpan Perubahan WiFi</Text>
+                    <Text style={styles.nativeSaveButtonText}>💾 Simpan & Terapkan Perubahan</Text>
                   </TouchableOpacity>
                 )}
+
+                <Text style={styles.formNote}>
+                  ⚠️ PENTING: Setelah menekan tombol simpan, koneksi WiFi HP Anda akan terputus karena modem merestart jaringan nirkabel. Silakan hubungkan kembali HP Anda dengan nama/password WiFi yang baru.
+                </Text>
               </View>
             </ScrollView>
-          </Animated.View>
-        )}
-      </View>
+          )}
+        </View>
+      )}
 
-      <View style={styles.navigationBar}>
-        <TouchableOpacity style={[styles.navButton, !canGoBack && styles.disabledButton]} onPress={handleGoBack} disabled={!canGoBack} activeOpacity={0.7}>
-          <Text style={[styles.navText, !canGoBack && styles.disabledText]}>◀  Kembali</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.homeButton} onPress={onBack} activeOpacity={0.7}>
-          <Text style={styles.homeText}>🏠 Menu Utama</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.navButton, !canGoForward && styles.disabledButton]} onPress={handleGoForward} disabled={!canGoForward} activeOpacity={0.7}>
-          <Text style={[styles.navText, !canGoForward && styles.disabledText]}>Maju  ▶</Text>
-        </TouchableOpacity>
-      </View>
+      {/* Render overlay form di atas webview hanya jika showWebView aktif & WLAN terdeteksi */}
+      {showWebView && showWlanForm && (
+        <Animated.View style={[
+          styles.wlanFormContainer,
+          {
+            transform: [
+              {
+                translateY: formHeightAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [400, 0]
+                })
+              }
+            ],
+            opacity: formHeightAnim
+          }
+        ]}>
+          <View style={styles.formHeader}>
+            <View style={styles.formTitleContainer}>
+              <Text style={styles.formTitle}>📶 Pengaturan WiFi Terdeteksi</Text>
+              <Text style={styles.formSubtitle}>Konfigurasi WiFi modem ZTE Anda</Text>
+            </View>
+            <TouchableOpacity 
+              style={styles.closeFormButton} 
+              onPress={() => setShowWlanForm(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.closeFormIcon}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView 
+            style={styles.formScroll} 
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.formContent}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Nama WiFi (SSID)</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={newSsid}
+                  onChangeText={setNewSsid}
+                  placeholder="Masukkan nama WiFi baru"
+                  placeholderTextColor="#475569"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Password WiFi (Minimal 8 Karakter)</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  placeholder="Masukkan password WiFi baru"
+                  placeholderTextColor="#475569"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+
+              {saveStatus === 'saving' ? (
+                <View style={styles.savingContainer}>
+                  <ActivityIndicator size="small" color="#06B6D4" style={{ marginRight: 10 }} />
+                  <Text style={styles.savingText}>Mengirim perubahan ke modem...</Text>
+                </View>
+              ) : (
+                <TouchableOpacity 
+                  style={styles.saveButton}
+                  onPress={() => {
+                    if (!newSsid.trim()) {
+                      Alert.alert('Gagal', 'Nama WiFi tidak boleh kosong.');
+                      return;
+                    }
+                    if (newPassword.length < 8) {
+                      Alert.alert('Gagal', 'Password WiFi harus minimal 8 karakter.');
+                      return;
+                    }
+                    injectSaveWlanDetails(newSsid, newPassword);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.saveButtonText}>💾 Simpan Perubahan WiFi</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </ScrollView>
+        </Animated.View>
+      )}
+
+      {/* Navigation bar (Hanya tampil jika showWebView aktif agar navigasi browser normal tetap bisa digunakan) */}
+      {showWebView && (
+        <View style={styles.navigationBar}>
+          <TouchableOpacity style={[styles.navButton, !canGoBack && styles.disabledButton]} onPress={handleGoBack} disabled={!canGoBack} activeOpacity={0.7}>
+            <Text style={[styles.navText, !canGoBack && styles.disabledText]}>◀  Kembali</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.homeButton} onPress={onBack} activeOpacity={0.7}>
+            <Text style={styles.homeText}>🏠 Menu Utama</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.navButton, !canGoForward && styles.disabledButton]} onPress={handleGoForward} disabled={!canGoForward} activeOpacity={0.7}>
+            <Text style={[styles.navText, !canGoForward && styles.disabledText]}>Maju  ▶</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 };
@@ -838,5 +946,171 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#06B6D4',
+  },
+  // ── Fullscreen Native Experience Styles ────────────────────
+  webAreaHidden: {
+    position: 'absolute',
+    width: 0,
+    height: 0,
+    opacity: 0,
+  },
+  headerTitleContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#F8FAFC',
+    letterSpacing: 0.5,
+  },
+  reloadButtonActive: {
+    backgroundColor: 'rgba(6, 182, 212, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(6, 182, 212, 0.4)',
+  },
+  mainContentArea: {
+    flex: 1,
+    backgroundColor: '#090A12',
+  },
+  fullscreenProgressContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  progressAnimationBox: {
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  progressMainTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFF',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  progressMainSub: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 6,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  progressStepsBox: {
+    width: '100%',
+    backgroundColor: '#0F172A',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    marginBottom: 30,
+  },
+  footerNote: {
+    fontSize: 11,
+    color: '#475569',
+    textAlign: 'center',
+    paddingHorizontal: 20,
+    fontWeight: '500',
+    lineHeight: 16,
+  },
+  fullscreenFormContainer: {
+    flex: 1,
+  },
+  formContentBox: {
+    padding: 24,
+  },
+  formMainHeader: {
+    marginBottom: 28,
+  },
+  formMainTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#FFF',
+  },
+  formMainSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  cardInputGroup: {
+    backgroundColor: '#0F172A',
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
+    marginBottom: 20,
+  },
+  inputLabelHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  inputSubLabel: {
+    fontSize: 11,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  formTextInput: {
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 12,
+    height: 52,
+    paddingHorizontal: 16,
+    fontSize: 15,
+    color: '#F8FAFC',
+    fontWeight: '600',
+  },
+  nativeSaveButton: {
+    backgroundColor: '#06B6D4',
+    height: 54,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 8,
+    shadowColor: '#06B6D4',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  nativeSaveButtonText: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: 0.5,
+  },
+  nativeSavingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(6,182,212,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(6,182,212,0.2)',
+    borderRadius: 14,
+    height: 54,
+    marginTop: 8,
+  },
+  nativeSavingText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#06B6D4',
+  },
+  formNote: {
+    fontSize: 11,
+    color: '#64748B',
+    lineHeight: 18,
+    textAlign: 'justify',
+    marginTop: 24,
+    fontWeight: '500',
+    backgroundColor: 'rgba(239, 68, 68, 0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.08)',
+    padding: 12,
+    borderRadius: 10,
   },
 });
