@@ -316,9 +316,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           </TouchableOpacity>
 
           <View style={styles.footer}>
-            <Text style={styles.footerCreatedText}>Aplikasi Resmi Yang Dikembangkan Oleh</Text>
-            <Text style={styles.footerParentText}>MARZUQ NETWORK</Text>
-            <Text style={styles.footerCopyrightText}>© 2026 MARZUQ NETWORK. All Rights Reserved.</Text>
+            <Text style={styles.footerParentText}>
+              Developed by <Text style={styles.footerWhiteText}>MARZUQ NETWORK</Text>
+            </Text>
             <Text style={styles.footerSubText}>
               Part of Nusantara Group • Powered By <Text style={styles.footerDexaText}>DEXA</Text><Text style={styles.footerNetText}>NET</Text>
             </Text>
@@ -641,31 +641,21 @@ const styles = StyleSheet.create({
     marginTop: 26,
     marginBottom: 10,
   },
-  footerCreatedText: {
-    fontSize: 9,
-    color: '#475569',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
   footerParentText: {
-    fontSize: 14,
+    fontSize: 11,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  footerWhiteText: {
     color: '#FFF',
     fontWeight: '800',
-    letterSpacing: 1.5,
-  },
-  footerCopyrightText: {
-    fontSize: 9,
-    color: '#475569',
-    fontWeight: '600',
-    marginTop: 4,
+    letterSpacing: 0.5,
   },
   footerSubText: {
     fontSize: 10,
-    color: '#64748B',
+    color: '#475569',
     fontWeight: '600',
-    marginTop: 2,
+    marginTop: 4,
   },
   footerDexaText: {
     color: '#3B82F6',
