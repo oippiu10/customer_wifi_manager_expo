@@ -32,9 +32,12 @@ Semua target utama untuk mengotomatisasi navigasi, penanganan kesalahan secara p
 - Menampilkan overlay merah yang aman: *"Mengakhiri Sesi... Menutup sesi aktif Anda pada portal modem secara aman"*.
 - Injeksi script untuk memicu logout di modem agar sesi tidak menyangkut dan mencegah error *"Session limit exceeded"*.
 
-### 🔒 5. Sistem Hide/Show Password Premium (Sesuai Permintaan)
+### 🔒 5. Sistem Hide/Show Password Premium & Gembok Profesional
 - **Default Hidden**: Kolom input password baru WiFi secara default menyembunyikan teks (`secureTextEntry={true}`) demi privasi pengguna.
-- **Tombol Tampilkan/Sembunyikan (👁️)**: Menambahkan tombol ikon mata di ujung kanan input. Pengguna dapat mengetuk ikon mata untuk melihat/menyembunyikan teks password yang sedang diketik secara bergantian.
+- **Tombol Tampilkan/Sembunyikan Profesional**:
+  - Saat password disembunyikan: Tampil ikon mata (`👁️`) yang bersih. Ketuk untuk mengintip.
+  - Saat password ditampilkan: Tampil ikon **Gembok Terkunci (`🔒`)** yang sangat premium dan profesional. Ketuk kembali untuk menyembunyikan dan mengamankan password.
+  - *Catatan*: Emoji monyet playful (`🙈`) telah dihapus sepenuhnya demi menjaga estetika aplikasi yang mewah dan berkelas profesional.
 - **Sederhana & Bersih**: Menghapus label "Aktif" SSID & Password yang sebelumnya tampil di sebelah kanan label form agar desain formulir terlihat 100% fokus, minimalis, dan sangat bersih tanpa distraksi informasi yang tidak diperlukan.
 
 ---
@@ -53,6 +56,7 @@ Semua target utama untuk mengotomatisasi navigasi, penanganan kesalahan secara p
 - Memodifikasi input password di kedua form untuk mendukung `secureTextEntry` dan tombol mata.
 - Menghapus label "Aktif" pada bagian atas kolom input SSID dan password baru.
 - Menghapus `Alert.alert` pada event `DEBUG_LINKS` untuk menghilangkan spam dialog popups.
+- Mengubah emoji hide dari monyet (`🙈`) menjadi gembok profesional (`🔒`).
 
 ---
 
@@ -70,3 +74,5 @@ Seluruh modifikasi kode telah di-stage dan di-commit dengan aman ke Git lokal un
 - **Commit 10**: `feat: tambah deteksi online/offline dinamis pada dasbor awal dengan proteksi tombol`
 - **Commit 11**: `feat: tambah fitur auto-discovery gateway IP otomatis jika default offline`
 - **Commit 12**: `docs: update walkthrough dengan panduan auto-discovery gateway IP`
+- **Commit 13**: `style: ganti emoji monyet 🙈 dengan padlock 🔒 pada tombol toggle password`
+- **Commit 14**: `docs: update walkthrough.md untuk mencerminkan ikon gembok profesional`
