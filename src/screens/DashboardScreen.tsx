@@ -241,7 +241,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
             <View style={styles.ipSuggestions}>
               <TouchableOpacity 
                 onPress={() => handleSuggestionPress('192.168.1.1')} 
-                style={[styles.suggestionBadge, { marginRight: 12 }]}
+                style={styles.suggestionBadge}
               >
                 <Text style={styles.suggestionText}>192.168.1.1</Text>
               </TouchableOpacity>
@@ -520,7 +520,7 @@ const styles = StyleSheet.create({
   },
   ipSuggestions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: 12,
     marginTop: 14,
   },
   suggestionBadge: {
