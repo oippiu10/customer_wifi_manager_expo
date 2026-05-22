@@ -317,6 +317,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
 
           <View style={styles.footer}>
             <Text style={styles.footerParentText}>MARZUQ NETWORK</Text>
+            <Text style={styles.footerCopyrightText}>© 2026 MARZUQ NETWORK. All Rights Reserved.</Text>
             <Text style={styles.footerSubText}>
               Part of Nusantara Group • Powered By <Text style={styles.footerDexaText}>DEXA</Text><Text style={styles.footerNetText}>NET</Text>
             </Text>
@@ -645,11 +646,17 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 1.5,
   },
+  footerCopyrightText: {
+    fontSize: 9,
+    color: '#475569',
+    fontWeight: '600',
+    marginTop: 4,
+  },
   footerSubText: {
     fontSize: 10,
     color: '#64748B',
     fontWeight: '600',
-    marginTop: 4,
+    marginTop: 2,
   },
   footerDexaText: {
     color: '#3B82F6',
