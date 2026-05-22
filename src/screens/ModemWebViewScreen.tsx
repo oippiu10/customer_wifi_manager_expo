@@ -29,7 +29,30 @@ const AUTO_FILL_SCRIPT = `
     el.dispatchEvent(new Event('input',  { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
+  function checkLoginError() {
+    var errEl = document.getElementById('errmsg') || document.querySelector('.error') || document.querySelector('.errnote');
+    if (errEl && errEl.textContent.trim().length > 2) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'LOGIN_FAILED',
+        error: errEl.textContent.trim()
+      }));
+      return true;
+    }
+    var layer = document.getElementById('myLayer');
+    if (layer && layer.style.visibility !== 'hidden') {
+      var msg = document.getElementById('errmsg');
+      if (msg && msg.textContent.trim().length > 2) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'LOGIN_FAILED',
+          error: msg.textContent.trim()
+        }));
+        return true;
+      }
+    }
+    return false;
+  }
   function tryLogin() {
+    if (checkLoginError()) return;
     var uSels = ['input[name="Username"]','input[name="username"]','input[name="user"]','input[name="loginUsername"]','input[name="Frm_Loginuser"]','input[id="username"]','input[id="Username"]','input[id="txt_Username"]','input[id="txt_username"]','input[id="loginUsername"]','input[id="txtUsr"]','input[id="user"]','input[type="text"]','input[autocomplete="username"]'];
     var pSels = ['input[name="Password"]','input[name="password"]','input[name="pass"]','input[name="loginPassword"]','input[name="Frm_Loginpass"]','input[id="password"]','input[id="Password"]','input[id="txt_Password"]','input[id="txt_password"]','input[id="loginPassword"]','input[id="txtPwd"]','input[type="password"]','input[autocomplete="current-password"]'];
     var u = null, p = null;
@@ -50,6 +73,7 @@ const AUTO_FILL_SCRIPT = `
   }
   if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',tryLogin);}else{tryLogin();}
   setTimeout(tryLogin,800);setTimeout(tryLogin,1500);
+  setInterval(checkLoginError, 1000);
 })();
 true;
 `;
@@ -194,7 +218,22 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
   const [showWlanForm, setShowWlanForm] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [showWebView, setShowWebView] = useState(false); // Default: hidden (hanya tampil progress & native form)
+  const [automationError, setAutomationError] = useState<string | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const formHeightAnim = useRef(new Animated.Value(0)).current;
+
+  // Timer batas waktu otomasi (Timeout 30 detik untuk pencegahan stuck)
+  useEffect(() => {
+    if (isWlanLoaded || automationError) return;
+    const timer = setTimeout(() => {
+      if (!isWlanLoaded && !automationError) {
+        setAutomationError(
+          'Gagal memuat pengaturan modem secara otomatis. Batas waktu koneksi (timeout 30 detik) terlampaui. Pastikan HP terhubung ke WiFi modem.'
+        );
+      }
+    }, 30000);
+    return () => clearTimeout(timer);
+  }, [isWlanLoaded, automationError]);
 
   // Efek transisi spring untuk form edit WiFi ketika data WLAN terdeteksi
   useEffect(() => {
@@ -213,6 +252,45 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
       }).start();
     }
   }, [showWlanForm]);
+
+  // Keluar dari sesi secara aman (menghapus cookie/session aktif di modem)
+  const handleBackWithLogout = () => {
+    setIsLoggingOut(true);
+    webViewRef.current?.injectJavaScript(`
+      (function() {
+        function getAllDocs() {
+          var docs = [document];
+          try { for (var f = 0; f < window.frames.length; f++) { try { docs.push(window.frames[f].document); } catch(e) {} } } catch(e) {}
+          return docs;
+        }
+        var docs = getAllDocs();
+        for (var i = 0; i < docs.length; i++) {
+          var doc = docs[i];
+          if (typeof doc.defaultView.onClickLogout === 'function') {
+            try { doc.defaultView.onClickLogout(); return 'CALL_ONCLICKLOGOUT'; } catch(e){}
+          }
+          var links = doc.getElementsByTagName('a');
+          for (var j = 0; j < links.length; j++) {
+            if (links[j].textContent.toLowerCase().indexOf('logout') !== -1) {
+              links[j].click(); return 'CLICK_LOGOUT_LINK';
+            }
+          }
+          var flogout = doc.getElementById('flogout') || doc.forms['flogout'];
+          if (flogout) {
+            try { flogout.submit(); return 'SUBMIT_FLOGOUT'; } catch(e){}
+          }
+        }
+        return 'NO_LOGOUT_METHOD';
+      })();
+      true;
+    `);
+
+    // Beri waktu request logout sampai ke modem, lalu panggil callback onBack
+    setTimeout(() => {
+      setIsLoggingOut(false);
+      onBack();
+    }, 1200);
+  };
 
   const showCard = () => {
     setShowProgress(true);
@@ -474,6 +552,9 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
           'Perubahan Nama & Password WiFi telah dikirim ke modem. HP Anda mungkin akan terputus sebentar dari WiFi karena modem melakukan restart nirkabel. Silakan sambungkan kembali HP Anda ke WiFi baru.',
           [{ text: 'OK', onPress: () => setShowWlanForm(false) }]
         );
+      } else if (data.type === 'LOGIN_FAILED') {
+        setAutomationError(`Gagal Login: ${data.error || 'Username atau password yang Anda masukkan salah.'}`);
+        setStepLogin('idle');
       } else if (data.type === 'DEBUG_LINKS') {
         const frames = data.frameCount ?? 1;
         const links = (data.links as string[]);
@@ -520,7 +601,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
     >
       {/* Header Browser (hanya tampil jika showWebView aktif atau normal) */}
       <View style={styles.browserHeader}>
-        <TouchableOpacity style={styles.closeButton} onPress={onBack} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.closeButton} onPress={handleBackWithLogout} activeOpacity={0.7}>
           <Text style={styles.closeIcon}>✕</Text>
         </TouchableOpacity>
         
@@ -560,6 +641,16 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
           mixedContentMode="always"
           injectedJavaScript={AUTO_FILL_SCRIPT}
           onMessage={handleWebViewMessage}
+          onError={(syntheticEvent) => {
+            const { nativeEvent } = syntheticEvent;
+            setAutomationError(`Gagal memuat portal modem. Error: ${nativeEvent.description || 'Tidak ada koneksi jaringan'}`);
+          }}
+          onHttpError={(syntheticEvent) => {
+            const { nativeEvent } = syntheticEvent;
+            if (nativeEvent.statusCode >= 400) {
+              setAutomationError(`Server modem merespons dengan kode error HTTP ${nativeEvent.statusCode}`);
+            }
+          }}
           onNavigationStateChange={(navState) => {
             setCanGoBack(navState.canGoBack);
             setCanGoForward(navState.canGoForward);
@@ -585,7 +676,42 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
       {/* UI UTAMA PENGGUNA (Hanya tampil jika showWebView = false) */}
       {!showWebView && (
         <View style={styles.mainContentArea}>
-          {!isWlanLoaded ? (
+          {automationError ? (
+            /* 3. TAMPILAN FULLSCREEN NATIVE ERROR NOTIFICATION */
+            <View style={styles.fullscreenProgressContainer}>
+              <View style={styles.progressAnimationBox}>
+                <Text style={styles.errorBigIcon}>⚠️</Text>
+                <Text style={styles.progressMainTitle}>Koneksi Gagal</Text>
+                <Text style={styles.errorMsgText}>{automationError}</Text>
+              </View>
+
+              <View style={{ width: '100%', paddingHorizontal: 12 }}>
+                <TouchableOpacity 
+                  style={styles.nativeSaveButton} 
+                  onPress={() => {
+                    setAutomationError(null);
+                    setIsWlanLoaded(false);
+                    setStepLogin('idle');
+                    setStepNetwork('idle');
+                    setStepWlan('idle');
+                    navPhaseRef.current = 'idle';
+                    webViewRef.current?.reload();
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.nativeSaveButtonText}>🔄 Coba Hubungkan Kembali</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={[styles.nativeSaveButton, { backgroundColor: '#1E293B', marginTop: 14, shadowColor: 'transparent', borderWidth: 1, borderColor: '#334155' }]} 
+                  onPress={handleBackWithLogout}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.nativeSaveButtonText, { color: '#94A3B8' }]}>⚙️ Edit Kredensial & IP</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : !isWlanLoaded ? (
             /* 1. TAMPILAN FULLSCREEN PROGRESS OTOMASI */
             <View style={styles.fullscreenProgressContainer}>
               <View style={styles.progressAnimationBox}>
@@ -675,6 +801,15 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
                     <Text style={styles.nativeSaveButtonText}>💾 Simpan & Terapkan Perubahan</Text>
                   </TouchableOpacity>
                 )}
+
+                {/* Tombol Logout & Kembali yang aman */}
+                <TouchableOpacity 
+                  style={[styles.nativeSaveButton, { backgroundColor: '#1E293B', marginTop: 14, shadowColor: 'transparent', borderWidth: 1, borderColor: '#334155' }]} 
+                  onPress={handleBackWithLogout}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.nativeSaveButtonText, { color: '#94A3B8' }]}>🚪 Keluar Sesi & Kembali</Text>
+                </TouchableOpacity>
 
                 <Text style={styles.formNote}>
                   ⚠️ PENTING: Setelah menekan tombol simpan, koneksi WiFi HP Anda akan terputus karena modem merestart jaringan nirkabel. Silakan hubungkan kembali HP Anda dengan nama/password WiFi yang baru.
@@ -782,12 +917,21 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({ ipAddres
           <TouchableOpacity style={[styles.navButton, !canGoBack && styles.disabledButton]} onPress={handleGoBack} disabled={!canGoBack} activeOpacity={0.7}>
             <Text style={[styles.navText, !canGoBack && styles.disabledText]}>◀  Kembali</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.homeButton} onPress={onBack} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.homeButton} onPress={handleBackWithLogout} activeOpacity={0.7}>
             <Text style={styles.homeText}>🏠 Menu Utama</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.navButton, !canGoForward && styles.disabledButton]} onPress={handleGoForward} disabled={!canGoForward} activeOpacity={0.7}>
             <Text style={[styles.navText, !canGoForward && styles.disabledText]}>Maju  ▶</Text>
           </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Screen blocker ketika logout sedang diproses agar user aman dari klik beruntun */}
+      {isLoggingOut && (
+        <View style={styles.logoutOverlayContainer}>
+          <ActivityIndicator size="large" color="#EF4444" style={{ marginBottom: 16 }} />
+          <Text style={styles.logoutOverlayTitle}>Mengakhiri Sesi...</Text>
+          <Text style={styles.logoutOverlaySub}>Menutup sesi aktif Anda pada portal modem secara aman</Text>
         </View>
       )}
     </KeyboardAvoidingView>
@@ -1112,5 +1256,44 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(239, 68, 68, 0.08)',
     padding: 12,
     borderRadius: 10,
+  },
+  // ── Error & Logout UI Styles ──────────────────────────────
+  errorBigIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+  errorMsgText: {
+    fontSize: 13,
+    color: '#EF4444',
+    textAlign: 'center',
+    paddingHorizontal: 28,
+    marginTop: 10,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  logoutOverlayContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(9, 10, 18, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 9999,
+    paddingHorizontal: 30,
+  },
+  logoutOverlayTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFF',
+    marginTop: 12,
+  },
+  logoutOverlaySub: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 6,
+    textAlign: 'center',
+    fontWeight: '500',
   },
 });
