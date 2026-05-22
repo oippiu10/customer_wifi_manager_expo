@@ -25,6 +25,29 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
   const [hasManuallyEdited, setHasManuallyEdited] = useState(false);
   const [discoveredAutomatically, setDiscoveredAutomatically] = useState(false);
 
+  // States untuk Secret Technician Mode (Ketuk Logo 5x)
+  const [lastTap, setLastTap] = useState(0);
+  const [tapCount, setTapCount] = useState(0);
+  const [isTechMode, setIsTechMode] = useState(false);
+
+  const handleLogoPress = () => {
+    const now = Date.now();
+    // Jika jeda ketukan kurang dari 800 milidetik, tambahkan hitungan
+    if (now - lastTap < 800) {
+      const newCount = tapCount + 1;
+      setTapCount(newCount);
+      if (newCount >= 5) {
+        const nextMode = !isTechMode;
+        setIsTechMode(nextMode);
+        alert(nextMode ? "🛠️ Mode Asisten Jaringan Teknisi Aktif!" : "🔒 Mode Asisten Jaringan Teknisi Nonaktif!");
+        setTapCount(0);
+      }
+    } else {
+      setTapCount(1);
+    }
+    setLastTap(now);
+  };
+
   // Deteksi status koneksi gateway secara dinamis dengan Auto-Discovery
   const checkConnection = async (ipToTest: string, shouldAutoDiscover = false) => {
     try {
@@ -124,10 +147,12 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
       <View style={styles.container}>
         {/* HEADER SECTION */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.brandTitle}>NetGateway</Text>
+          <TouchableOpacity activeOpacity={0.8} onPress={handleLogoPress}>
+            <Text style={styles.brandTitle}>
+              NetGateway {isTechMode && <Text style={{ fontSize: 16, color: '#06B6D4' }}>🛠️</Text>}
+            </Text>
             <Text style={styles.brandSubtitle}>Router Assistant & Utility</Text>
-          </View>
+          </TouchableOpacity>
           <View style={[
             styles.statusBadge,
             isOnline === true && styles.statusBadgeOnline,
@@ -229,36 +254,42 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate, on
             </View>
           </View>
 
-          <Text style={styles.sectionTitle}>Pusat Alat Bantu & Panduan</Text>
+          {/* MENU GRID - HANYA DITAMPILKAN UNTUK MODE TEKNISI (SECRET ACCESS) */}
+          {isTechMode && (
+            <>
+              <Text style={styles.sectionTitle}>Peralatan Bantu Teknisi 🛠️</Text>
+              <View style={styles.gridContainer}>
+                {/* CARD 1: PASSWORD CREDENTIALS */}
+                <TouchableOpacity 
+                  style={styles.gridItem} 
+                  onPress={() => onNavigate('credentials')}
+                  activeOpacity={0.85}
+                >
+                  <View style={[styles.itemIconContainer, { backgroundColor: 'rgba(6, 182, 212, 0.1)' }]}>
+                    <Text style={styles.itemIcon}>🔑</Text>
+                  </View>
+                  <Text style={styles.itemTitle}>Sandi Bawaan</Text>
+                  <Text style={styles.itemDesc}>Database username & password admin bawaan pabrik modem.</Text>
+                </TouchableOpacity>
 
-          {/* MENU GRID */}
-          <View style={styles.gridContainer}>
-            {/* CARD 1: PASSWORD CREDENTIALS */}
-            <TouchableOpacity 
-              style={styles.gridItem} 
-              onPress={() => onNavigate('credentials')}
-              activeOpacity={0.85}
-            >
-              <View style={[styles.itemIconContainer, { backgroundColor: 'rgba(6, 182, 212, 0.1)' }]}>
-                <Text style={styles.itemIcon}>🔑</Text>
+                {/* CARD 2: PING TESTER */}
+                <TouchableOpacity 
+                  style={styles.gridItem} 
+                  onPress={() => onNavigate('ping')}
+                  activeOpacity={0.85}
+                >
+                  <View style={[styles.itemIconContainer, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
+                    <Text style={styles.itemIcon}>⚡</Text>
+                  </View>
+                  <Text style={styles.itemTitle}>Tes Ping Jaringan</Text>
+                  <Text style={styles.itemDesc}>Uji kestabilan dan latensi respon koneksi modem secara real-time.</Text>
+                </TouchableOpacity>
               </View>
-              <Text style={styles.itemTitle}>Sandi Bawaan</Text>
-              <Text style={styles.itemDesc}>Database username & password admin bawaan pabrik modem.</Text>
-            </TouchableOpacity>
+            </>
+          )}
 
-            {/* CARD 2: PING TESTER */}
-            <TouchableOpacity 
-              style={styles.gridItem} 
-              onPress={() => onNavigate('ping')}
-              activeOpacity={0.85}
-            >
-              <View style={[styles.itemIconContainer, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
-                <Text style={styles.itemIcon}>⚡</Text>
-              </View>
-              <Text style={styles.itemTitle}>Tes Ping Jaringan</Text>
-              <Text style={styles.itemDesc}>Uji kestabilan dan latensi respon koneksi modem secara real-time.</Text>
-            </TouchableOpacity>
-          </View>
+          {/* DIAGNOSA JARINGAN - SELALU DITAMPILKAN UNTUK PELANGGAN MAUPUN TEKNISI */}
+          <Text style={styles.sectionTitle}>Pusat Bantuan & Panduan</Text>
 
           {/* FULL WIDTH CARD: NETWORK GUIDE */}
           <TouchableOpacity 
