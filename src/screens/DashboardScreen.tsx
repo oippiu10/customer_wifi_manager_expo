@@ -187,7 +187,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* QUICK GATEWAY PORTAL CARD */}
+          <View style={{ flex: 1 }}>
+            {/* QUICK GATEWAY PORTAL CARD */}
           <View style={styles.gatewayCard}>
             <View style={styles.cardHeader}>
               <Text style={styles.cardEmoji}>🖥️</Text>
@@ -314,13 +315,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
             </View>
             <Text style={styles.guideArrow}>➡️</Text>
           </TouchableOpacity>
+          </View>
 
           <View style={styles.footer}>
             <Text style={styles.footerParentText}>
               Developed by <Text style={styles.footerWhiteText}>MARZUQ NETWORK</Text>
             </Text>
             <Text style={styles.footerSubText}>
-              Part of Nusantara Group • Powered By <Text style={styles.footerDexaText}>DEXA</Text><Text style={styles.footerNetText}>NET</Text>
+              Part of <Text style={styles.footerNusantaraText}>Nusantara Group</Text> • Powered By <Text style={styles.footerDexaText}>DEXA</Text><Text style={styles.footerNetText}>NET</Text>
             </Text>
           </View>
         </ScrollView>
@@ -411,7 +413,8 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingTop: 24,
-    paddingBottom: 40,
+    paddingBottom: 24,
+    flexGrow: 1,
   },
   gatewayCard: {
     backgroundColor: '#111322',
@@ -656,6 +659,11 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontWeight: '600',
     marginTop: 4,
+  },
+  footerNusantaraText: {
+    color: '#94A3B8',
+    fontWeight: '800',
+    fontSize: 11.5,
   },
   footerDexaText: {
     color: '#3B82F6',
