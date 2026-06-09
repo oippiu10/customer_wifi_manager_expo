@@ -104,3 +104,4 @@ Seluruh modifikasi kode telah di-stage dan di-commit dengan aman ke Git lokal un
 - **Commit 17**: `feat: tambah Secret Technician Mode (5x tap logo) untuk menampilkan menu bantu teknisi`
 - **Commit 18**: `docs: update walkthrough.md untuk mencakup Secret Technician Mode`
 - **Commit 19**: `fix: perbaiki navigasi diagnosa modem agar bertahap menggunakan state machine NavPhase dan onNavigationStateChange untuk mencegah otomatis logout`
+- **Commit 20**: `fix: perbarui onNavigationStateChange dengan router berbasis URL untuk navigasi diagnostik guna mencegah loop klik Status`

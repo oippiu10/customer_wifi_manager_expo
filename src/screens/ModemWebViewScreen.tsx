@@ -1506,12 +1506,18 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                 setTimeout(injectClickNetwork, 1200);
               } else if (navPhaseRef.current === 'wlan') {
                 setTimeout(injectClickWlan, 800);
-              } else if (navPhaseRef.current === 'diag_status') {
-                setTimeout(injectClickDiagStatus, 1000);
-              } else if (navPhaseRef.current === 'diag_netitf') {
-                setTimeout(injectClickDiagNetItf, 1000);
-              } else if (navPhaseRef.current === 'diag_read') {
-                setTimeout(injectReadDiagData, 1000);
+              } else if (activeMenu === 'status' && navPhaseRef.current !== 'done') {
+                const url = navState.url.toLowerCase();
+                if (url.indexOf('status_dev_pon_t.gch') !== -1) {
+                  navPhaseRef.current = 'diag_read';
+                  setTimeout(injectReadDiagData, 1000);
+                } else if (url.indexOf('status_dev_info_t.gch') !== -1 || url.indexOf('menu_status_t.gch') !== -1) {
+                  navPhaseRef.current = 'diag_netitf';
+                  setTimeout(injectClickDiagNetItf, 1000);
+                } else {
+                  navPhaseRef.current = 'diag_status';
+                  setTimeout(injectClickDiagStatus, 1000);
+                }
               }
             }
           }}
