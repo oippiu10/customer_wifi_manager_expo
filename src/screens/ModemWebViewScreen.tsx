@@ -1031,19 +1031,36 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
         function clickElement(el) {
           if (!el) return false;
           var target = el;
-          while (target && target.tagName !== 'TR' && target.tagName !== 'TD' && target.tagName !== 'A' && target.tagName !== 'LI' && !target.onclick) {
+          while (target && target.tagName !== 'TR' && target.tagName !== 'TD' && target.tagName !== 'A' && target.tagName !== 'LI' && !target.getAttribute('onclick') && !target.onclick) {
             target = target.parentElement;
           }
-          if (target && !target.onclick && target.parentElement && target.parentElement.onclick) {
+          if (target && !target.onclick && !target.getAttribute('onclick') && target.parentElement && (target.parentElement.onclick || target.parentElement.getAttribute('onclick'))) {
             target = target.parentElement;
           }
           if (!target) target = el;
+          
           try {
+            var attr = target.getAttribute('onclick');
+            if (attr) {
+              var code = attr.replace(/^javascript:/i, '').replace(/&amp;/g, '&');
+              var win = target.ownerDocument.defaultView || window;
+              win.eval(code);
+              return true;
+            }
+            if (typeof target.onclick === 'function') {
+              target.onclick();
+              return true;
+            }
             target.click();
             target.dispatchEvent(new MouseEvent('click', {bubbles:true}));
             return true;
           } catch(e) {
-            return false;
+            try {
+              target.click();
+              return true;
+            } catch(err) {
+              return false;
+            }
           }
         }
 
@@ -1094,13 +1111,23 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
         
         log("Menu Status tidak ditemukan di DOM. Mencoba openLink langsung...");
         try {
-          var win = window;
+          var navWin = window;
           if (typeof openLink !== 'function') {
-            if (parent && typeof parent.openLink === 'function') win = parent;
-            else if (top && typeof top.openLink === 'function') win = top;
+            if (parent && typeof parent.openLink === 'function') navWin = parent;
+            else if (top && typeof top.openLink === 'function') navWin = top;
+            else {
+              for (var d = 0; d < docs.length; d++) {
+                try {
+                  if (docs[d].defaultView && typeof docs[d].defaultView.openLink === 'function') {
+                    navWin = docs[d].defaultView;
+                    break;
+                  }
+                } catch(e) {}
+              }
+            }
           }
-          if (typeof win.openLink === 'function') {
-            win.openLink('getpage.gch?pid=1002&nextpage=status_dev_info_t.gch');
+          if (typeof navWin.openLink === 'function') {
+            navWin.openLink('getpage.gch?pid=1002&nextpage=status_dev_info_t.gch');
             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_STATUS_CLICKED' }));
             return true;
           }
@@ -1132,19 +1159,36 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
         function clickElement(el) {
           if (!el) return false;
           var target = el;
-          while (target && target.tagName !== 'TR' && target.tagName !== 'TD' && target.tagName !== 'A' && target.tagName !== 'LI' && !target.onclick) {
+          while (target && target.tagName !== 'TR' && target.tagName !== 'TD' && target.tagName !== 'A' && target.tagName !== 'LI' && !target.getAttribute('onclick') && !target.onclick) {
             target = target.parentElement;
           }
-          if (target && !target.onclick && target.parentElement && target.parentElement.onclick) {
+          if (target && !target.onclick && !target.getAttribute('onclick') && target.parentElement && (target.parentElement.onclick || target.parentElement.getAttribute('onclick'))) {
             target = target.parentElement;
           }
           if (!target) target = el;
+          
           try {
+            var attr = target.getAttribute('onclick');
+            if (attr) {
+              var code = attr.replace(/^javascript:/i, '').replace(/&amp;/g, '&');
+              var win = target.ownerDocument.defaultView || window;
+              win.eval(code);
+              return true;
+            }
+            if (typeof target.onclick === 'function') {
+              target.onclick();
+              return true;
+            }
             target.click();
             target.dispatchEvent(new MouseEvent('click', {bubbles:true}));
             return true;
           } catch(e) {
-            return false;
+            try {
+              target.click();
+              return true;
+            } catch(err) {
+              return false;
+            }
           }
         }
 
@@ -1214,13 +1258,23 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
 
           log("PON Inform tidak ditemukan di DOM. Mencoba openLink langsung...");
           try {
-            var win = window;
+            var navWin = window;
             if (typeof openLink !== 'function') {
-              if (parent && typeof parent.openLink === 'function') win = parent;
-              else if (top && typeof top.openLink === 'function') win = top;
+              if (parent && typeof parent.openLink === 'function') navWin = parent;
+              else if (top && typeof top.openLink === 'function') navWin = top;
+              else {
+                for (var d3 = 0; d3 < docs3.length; d3++) {
+                  try {
+                    if (docs3[d3].defaultView && typeof docs3[d3].defaultView.openLink === 'function') {
+                      navWin = docs3[d3].defaultView;
+                      break;
+                    }
+                  } catch(e) {}
+                }
+              }
             }
-            if (typeof win.openLink === 'function') {
-              win.openLink('getpage.gch?pid=1002&nextpage=status_dev_pon_t.gch');
+            if (typeof navWin.openLink === 'function') {
+              navWin.openLink('getpage.gch?pid=1002&nextpage=status_dev_pon_t.gch');
               window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_PON_CLICKED' }));
             }
           } catch(e) {}
