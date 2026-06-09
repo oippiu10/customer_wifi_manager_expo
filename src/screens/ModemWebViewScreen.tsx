@@ -1131,7 +1131,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
               window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_PON_CLICKED' }));
             }
           } catch(e) {}
-        }, 500);
+        }, 800);
 
       })();
       true;
@@ -1198,13 +1198,8 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
   const handleRefreshDiagnostics = () => {
     setRealDiag(null);
     setDiagLogs([]);
-    if (currentUrl.indexOf('status_dev_pon_t.gch') !== -1) {
-      navPhaseRef.current = 'diag_read';
-      webViewRef.current?.reload();
-    } else {
-      navPhaseRef.current = 'diag_status';
-      injectClickDiagStatus();
-    }
+    navPhaseRef.current = 'diag_status';
+    injectClickDiagStatus();
   };
 
   const handleWebViewMessage = (event: any) => {
@@ -1272,8 +1267,10 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
         setIsScanningDevices(false);
       } else if (data.type === 'DIAG_STATUS_CLICKED') {
         navPhaseRef.current = 'diag_netitf';
+        setTimeout(injectClickDiagNetItf, 1500);
       } else if (data.type === 'DIAG_PON_CLICKED') {
         navPhaseRef.current = 'diag_read';
+        setTimeout(injectReadDiagData, 1500);
       } else if (data.type === 'DIAG_DATA_READ') {
         // Data real diagnostik dari status page modem
         setRealDiag(data.diag);
@@ -1506,18 +1503,6 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                 setTimeout(injectClickNetwork, 1200);
               } else if (navPhaseRef.current === 'wlan') {
                 setTimeout(injectClickWlan, 800);
-              } else if (activeMenu === 'status' && navPhaseRef.current !== 'done') {
-                const url = navState.url.toLowerCase();
-                if (url.indexOf('status_dev_pon_t.gch') !== -1) {
-                  navPhaseRef.current = 'diag_read';
-                  setTimeout(injectReadDiagData, 1000);
-                } else if (url.indexOf('status_dev_info_t.gch') !== -1 || url.indexOf('menu_status_t.gch') !== -1) {
-                  navPhaseRef.current = 'diag_netitf';
-                  setTimeout(injectClickDiagNetItf, 1000);
-                } else {
-                  navPhaseRef.current = 'diag_status';
-                  setTimeout(injectClickDiagStatus, 1000);
-                }
               }
             }
           }}
