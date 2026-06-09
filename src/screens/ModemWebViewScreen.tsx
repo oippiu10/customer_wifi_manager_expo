@@ -407,6 +407,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
         setDiagLogs([]);
         navPhaseRef.current = 'diag_status';
         injectClickDiagStatus();
+        injectDiagLogger();
       }
     }
   }, [activeMenu, isWlanLoaded]);
@@ -911,6 +912,96 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
           }
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEVICE_DATA_READ', devices: devices }));
         }, 2500);
+      })();
+      true;
+    `);
+  };
+
+  const injectDiagLogger = () => {
+    webViewRef.current?.injectJavaScript(`
+      (function() {
+        if (window.diagLoggerInterval) clearInterval(window.diagLoggerInterval);
+        window.diagLoggerInterval = setInterval(function() {
+          function getAllDocsInfo() {
+            var info = [];
+            var docs = [document];
+            var docUrls = [window.location.href];
+            try {
+              for (var f = 0; f < window.frames.length; f++) {
+                try {
+                  docs.push(window.frames[f].document);
+                  docUrls.push(window.frames[f].location.href);
+                } catch(e) {}
+              }
+            } catch(e) {}
+            try {
+              var ifs = document.querySelectorAll('iframe');
+              for (var fi = 0; fi < ifs.length; fi++) {
+                try {
+                  if (ifs[fi].contentDocument) {
+                    docs.push(ifs[fi].contentDocument);
+                    docUrls.push(ifs[fi].contentWindow.location.href);
+                  }
+                } catch(e) {}
+              }
+            } catch(e) {}
+            
+            var rxFound = null;
+            var diag = { rxPower:'', txPower:'', uptime:'', wanIp:'', firmware:'', temp:'', ponStatus:'' };
+
+            for (var i = 0; i < docs.length; i++) {
+              try {
+                var d = docs[i];
+                var url = docUrls[i];
+                var ids = [];
+                if (d.getElementById('mmStatus')) ids.push('mmStatus');
+                if (d.getElementById('smNetItf')) ids.push('smNetItf');
+                if (d.getElementById('smPONInf')) ids.push('smPONInf');
+                info.push("Frame " + i + " URL: " + url + " | IDs: [" + ids.join(',') + "]");
+                
+                // Pindai data redaman secara dinamis di frame ini jika ada
+                var rows = d.querySelectorAll('tr');
+                for (var r = 0; r < rows.length; r++) {
+                  var tds = rows[r].querySelectorAll('td');
+                  if (tds.length >= 2) {
+                    var label = (tds[0].textContent || tds[0].innerText || '').toLowerCase().trim();
+                    var value = (tds[1].textContent || tds[1].innerText || '').trim();
+                    if (
+                      (label.indexOf('input') !== -1 && label.indexOf('power') !== -1) || 
+                      label.indexOf('rx') !== -1 || 
+                      label.indexOf('rxoptical') !== -1 || 
+                      label.indexOf('receiver') !== -1 || 
+                      label.indexOf('penerima') !== -1
+                    ) {
+                      diag.rxPower = value;
+                      rxFound = value;
+                    } else if (
+                      (label.indexOf('output') !== -1 && label.indexOf('power') !== -1) || 
+                      label.indexOf('tx') !== -1 || 
+                      label.indexOf('txoptical') !== -1 || 
+                      label.indexOf('transmitter') !== -1 || 
+                      label.indexOf('pemancar') !== -1
+                    ) {
+                      diag.txPower = value;
+                    } else if (label.indexOf('temperature') !== -1 || label.indexOf('suhu') !== -1 || label.indexOf('temp') !== -1) {
+                      diag.temp = value;
+                    } else if (label.indexOf('gpon state') !== -1 || label.indexOf('pon status') !== -1 || label.indexOf('state') !== -1) {
+                      diag.ponStatus = value;
+                    }
+                  }
+                }
+              } catch(err) {}
+            }
+            
+            if (rxFound) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_DATA_READ', diag: diag }));
+            }
+            
+            return info;
+          }
+          var logs = getAllDocsInfo();
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_LOG', logs: logs }));
+        }, 1500);
       })();
       true;
     `);
@@ -1503,6 +1594,9 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                 setTimeout(injectClickNetwork, 1200);
               } else if (navPhaseRef.current === 'wlan') {
                 setTimeout(injectClickWlan, 800);
+              }
+              if (activeMenu === 'status') {
+                injectDiagLogger();
               }
             }
           }}

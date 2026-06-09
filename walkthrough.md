@@ -105,3 +105,4 @@ Seluruh modifikasi kode telah di-stage dan di-commit dengan aman ke Git lokal un
 - **Commit 18**: `docs: update walkthrough.md untuk mencakup Secret Technician Mode`
 - **Commit 19**: `fix: perbaiki navigasi diagnosa modem agar bertahap menggunakan state machine NavPhase dan onNavigationStateChange untuk mencegah otomatis logout`
 - **Commit 20**: `fix: pindahkan orkestrasi diagnostik ke jembatan postMessage asinkron guna mendukung navigasi internal berbasis frame/iframe pada modem ZTE`
+- **Commit 21**: `feat: tambahkan fitur background diag logger real-time untuk mencatat URL frame dan membaca data redaman secara dinamis`
