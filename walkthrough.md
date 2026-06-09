@@ -55,6 +55,15 @@ Semua target utama untuk mengotomatisasi navigasi, penanganan kesalahan secara p
   - *Catatan*: Emoji monyet playful (`🙈`) telah dihapus sepenuhnya demi menjaga estetika aplikasi yang mewah dan berkelas profesional.
 - **Sederhana & Bersih**: Menghapus label "Aktif" SSID & Password yang sebelumnya tampil di sebelah kanan label form agar desain formulir terlihat 100% fokus, minimalis, dan sangat bersih tanpa distraksi informasi yang tidak diperlukan.
 
+### 🎛️ 8. Navigasi Diagnostik Bertahap & Anti-Logout (State Machine NavPhase)
+- **Masalah Sebelumnya**: Mengklik tombol diagnostik memicu klik cepat beruntun lewat `setTimeout` dalam satu skrip injeksi JS. Hal ini memicu tabrakan navigasi (race condition) dan dideteksi oleh server modem ZTE F663V3A sebagai anomali sesi sehingga modem langsung memaksa logout otomatis (kembali ke halaman login).
+- **Solusi Cerdas**: Navigasi dipecah secara sinkron dan teratur menggunakan state machine `navPhaseRef.current` yang terintegrasi dengan event `onNavigationStateChange` WebView:
+  1. **Fase `diag_status`**: Mengklik menu utama "Status" (`mmStatus`) secara presisi (termasuk mencari elemen induk `<tr>` jika element `<td>` tidak memiliki handler `onclick`).
+  2. **Fase `diag_netitf`**: Setelah halaman Status termuat, sub-menu "Network Interface" diklik, lalu 500ms kemudian sub-submenu "PON Inform" diklik dalam rentetan yang aman.
+  3. **Fase `diag_read`**: Setelah halaman PON Inform (`status_dev_pon_t.gch`) selesai dimuat penuh, data redaman Rx Power dibaca dari tabel secara native.
+  4. **Fase `done`**: Proses selesai dengan aman tanpa memicu spam navigasi ke modem.
+- **Segarkan Diagnostik Pintar**: Jika tombol "Segarkan Diagnostik" ditekan saat pengguna sudah berada di halaman PON Inform, WebView hanya akan memicu reload halaman dan langsung membaca ulang data redaman tanpa perlu mengulangi seluruh proses navigasi dari awal.
+
 ---
 
 ## 🛠️ Ringkasan Perubahan Kode
@@ -94,3 +103,4 @@ Seluruh modifikasi kode telah di-stage dan di-commit dengan aman ke Git lokal un
 - **Commit 16**: `docs: update walkthrough.md dengan layout 50/50 simetris`
 - **Commit 17**: `feat: tambah Secret Technician Mode (5x tap logo) untuk menampilkan menu bantu teknisi`
 - **Commit 18**: `docs: update walkthrough.md untuk mencakup Secret Technician Mode`
+- **Commit 19**: `fix: perbaiki navigasi diagnosa modem agar bertahap menggunakan state machine NavPhase dan onNavigationStateChange untuk mencegah otomatis logout`
