@@ -258,6 +258,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
   const [stepLogin, setStepLogin]         = useState<StepStatus>('idle');
   const [stepNetwork, setStepNetwork]     = useState<StepStatus>('idle');
   const [stepWlan, setStepWlan]           = useState<StepStatus>('idle');
+  const [diagStep, setDiagStep]           = useState<'idle' | 'status' | 'netitf' | 'read' | 'done'>('idle');
   const cardOpacity = useRef(new Animated.Value(0)).current;
 
   // States untuk membaca & menyimpan data WiFi (SSID/Password) secara native
@@ -405,6 +406,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
       } else if (activeMenu === 'status') {
         setRealDiag(null);
         setDiagLogs([]);
+        setDiagStep('status');
         navPhaseRef.current = 'diag_status';
         injectClickDiagStatus();
         injectDiagLogger();
@@ -1289,6 +1291,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
   const handleRefreshDiagnostics = () => {
     setRealDiag(null);
     setDiagLogs([]);
+    setDiagStep('status');
     navPhaseRef.current = 'diag_status';
     injectClickDiagStatus();
   };
@@ -1358,13 +1361,16 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
         setIsScanningDevices(false);
       } else if (data.type === 'DIAG_STATUS_CLICKED') {
         navPhaseRef.current = 'diag_netitf';
+        setDiagStep('netitf');
         setTimeout(injectClickDiagNetItf, 1500);
       } else if (data.type === 'DIAG_PON_CLICKED') {
         navPhaseRef.current = 'diag_read';
+        setDiagStep('read');
         setTimeout(injectReadDiagData, 1500);
       } else if (data.type === 'DIAG_DATA_READ') {
         // Data real diagnostik dari status page modem
         setRealDiag(data.diag);
+        setDiagStep('done');
         navPhaseRef.current = 'done';
       } else if (data.type === 'DIAG_LOG') {
         setDiagLogs(data.logs || []);
@@ -1971,8 +1977,8 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                     <View style={[styles.cardInputGroup, { backgroundColor: colors.card, borderColor: colors.cardBorder, padding: 16, marginBottom: 14 }]}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Text style={{ fontSize: 12, color: colors.subtext, fontWeight: '700' }}>DAYA OPTIK PENERIMA (RX)</Text>
-                        <View style={{ backgroundColor: 'rgba(16, 189, 129, 0.15)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 }}>
-                          <Text style={{ fontSize: 10, fontWeight: '800', color: '#10B981' }}>
+                        <View style={{ backgroundColor: realDiag ? 'rgba(16, 189, 129, 0.15)' : 'rgba(6, 182, 212, 0.15)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 }}>
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: realDiag ? '#10B981' : '#06B6D4' }}>
                             {realDiag ? 'LIVE' : 'MENUNGGU'}
                           </Text>
                         </View>
@@ -1991,7 +1997,49 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                         <Text style={{ fontSize: 9, color: '#10B981', fontWeight: '800' }}>-15 s/d -25 dBm (Bagus)</Text>
                         <Text style={{ fontSize: 9, color: colors.subtext }}>-8 dBm (Terlalu Kuat)</Text>
                       </View>
+                      
+                      {!realDiag && diagStep !== 'idle' && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 14, backgroundColor: colors.savingBg, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: colors.savingBorder }}>
+                          <ActivityIndicator size="small" color="#06B6D4" style={{ marginRight: 8 }} />
+                          <Text style={{ fontSize: 11, color: colors.text, fontWeight: '600' }}>
+                            {diagStep === 'status' && 'Langkah 1/3: Membuka menu Status...'}
+                            {diagStep === 'netitf' && 'Langkah 2/3: Masuk ke Network Interface...'}
+                            {diagStep === 'read' && 'Langkah 3/3: Membaca parameter optik...'}
+                          </Text>
+                        </View>
+                      )}
                     </View>
+
+                    {/* Detail Informasi Parameter Optik */}
+                    {realDiag && (
+                      <View style={[styles.cardInputGroup, { backgroundColor: colors.card, borderColor: colors.cardBorder, padding: 16, marginBottom: 14 }]}>
+                        <Text style={{ fontSize: 12, color: colors.subtext, fontWeight: '700', marginBottom: 12 }}>INFORMASI PARAMETER OPTIK</Text>
+                        
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.divider }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Feather name="upload-cloud" size={16} color="#06B6D4" style={{ marginRight: 10 }} />
+                            <Text style={{ fontSize: 13, color: colors.text, fontWeight: '500' }}>Daya Optik Pemancar (TX)</Text>
+                          </View>
+                          <Text style={{ fontSize: 13, color: colors.text, fontWeight: '700' }}>{realDiag.txPower || '--'}</Text>
+                        </View>
+
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.divider }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Feather name="thermometer" size={16} color="#EF4444" style={{ marginRight: 10 }} />
+                            <Text style={{ fontSize: 13, color: colors.text, fontWeight: '500' }}>Suhu Modul Optik</Text>
+                          </View>
+                          <Text style={{ fontSize: 13, color: colors.text, fontWeight: '700' }}>{realDiag.temp || '--'}</Text>
+                        </View>
+
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Feather name="activity" size={16} color="#10B981" style={{ marginRight: 10 }} />
+                            <Text style={{ fontSize: 13, color: colors.text, fontWeight: '500' }}>Status GPON</Text>
+                          </View>
+                          <Text style={{ fontSize: 13, color: '#10B981', fontWeight: '700' }}>{realDiag.ponStatus || '--'}</Text>
+                        </View>
+                      </View>
+                    )}
  
                     {/* Scan / Refresh Button */}
                     <TouchableOpacity
