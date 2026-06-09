@@ -926,27 +926,23 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
         window.diagLoggerInterval = setInterval(function() {
           function getAllDocsInfo() {
             var info = [];
-            var docs = [document];
-            var docUrls = [window.location.href];
-            try {
-              for (var f = 0; f < window.frames.length; f++) {
-                try {
-                  docs.push(window.frames[f].document);
-                  docUrls.push(window.frames[f].location.href);
-                } catch(e) {}
-              }
-            } catch(e) {}
-            try {
-              var ifs = document.querySelectorAll('iframe');
-              for (var fi = 0; fi < ifs.length; fi++) {
-                try {
-                  if (ifs[fi].contentDocument) {
-                    docs.push(ifs[fi].contentDocument);
-                    docUrls.push(ifs[fi].contentWindow.location.href);
-                  }
-                } catch(e) {}
-              }
-            } catch(e) {}
+            var docs = [];
+            var docUrls = [];
+            
+            function collect(win) {
+              try {
+                if (win.document && docs.indexOf(win.document) === -1) {
+                  docs.push(win.document);
+                  docUrls.push(win.location.href);
+                }
+              } catch(e) { return; }
+              try {
+                for (var i = 0; i < win.frames.length; i++) {
+                  collect(win.frames[i]);
+                }
+              } catch(e) {}
+            }
+            collect(window);
             
             var rxFound = null;
             var diag = { rxPower:'', txPower:'', uptime:'', wanIp:'', firmware:'', temp:'', ponStatus:'' };
@@ -1022,9 +1018,20 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
         }
         
         function getAllDocs() {
-          var docs = [document];
-          try { for (var f = 0; f < window.frames.length; f++) { try { docs.push(window.frames[f].document); } catch(e) {} } } catch(e) {}
-          try { var ifs = document.querySelectorAll('iframe'); for (var fi = 0; fi < ifs.length; fi++) { try { if (ifs[fi].contentDocument) docs.push(ifs[fi].contentDocument); } catch(e) {} } } catch(e) {}
+          var docs = [];
+          function collect(win) {
+            try {
+              if (win.document && docs.indexOf(win.document) === -1) {
+                docs.push(win.document);
+              }
+            } catch(e) {}
+            try {
+              for (var i = 0; i < win.frames.length; i++) {
+                collect(win.frames[i]);
+              }
+            } catch(e) {}
+          }
+          collect(window);
           return docs;
         }
 
@@ -1076,7 +1083,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
             } else {
               var tags = doc.querySelectorAll('a, span, td, font');
               for (var i = 0; i < tags.length; i++) {
-                var txt = (tags[i].textContent || '').trim().toLowerCase();
+                var txt = (tags[i].textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
                 var id = (tags[i].id || '').toLowerCase();
                 var href = (tags[i].href || '').toLowerCase();
                 
@@ -1150,9 +1157,20 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
         }
         
         function getAllDocs() {
-          var docs = [document];
-          try { for (var f = 0; f < window.frames.length; f++) { try { docs.push(window.frames[f].document); } catch(e) {} } } catch(e) {}
-          try { var ifs = document.querySelectorAll('iframe'); for (var fi = 0; fi < ifs.length; fi++) { try { if (ifs[fi].contentDocument) docs.push(ifs[fi].contentDocument); } catch(e) {} } } catch(e) {}
+          var docs = [];
+          function collect(win) {
+            try {
+              if (win.document && docs.indexOf(win.document) === -1) {
+                docs.push(win.document);
+              }
+            } catch(e) {}
+            try {
+              for (var i = 0; i < win.frames.length; i++) {
+                collect(win.frames[i]);
+              }
+            } catch(e) {}
+          }
+          collect(window);
           return docs;
         }
 
@@ -1204,8 +1222,26 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
             } else {
               var tags = doc.querySelectorAll('a, span, td, font');
               for (var i = 0; i < tags.length; i++) {
-                var txt = (tags[i].textContent || '').trim().toLowerCase();
-                if (txt === 'network interface' || txt.indexOf('network interface') !== -1) {
+                var txt = (tags[i].textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                var id = (tags[i].id || '').toLowerCase();
+                var href = (tags[i].getAttribute('href') || '').toLowerCase();
+                var onclick = (tags[i].getAttribute('onclick') || '').toLowerCase();
+
+                if (
+                  id === 'smnetitf' ||
+                  id.indexOf('netitf') !== -1 ||
+                  id.indexOf('networkinterface') !== -1 ||
+                  txt === 'network interface' ||
+                  txt.indexOf('network interface') !== -1 ||
+                  txt.indexOf('network-interface') !== -1 ||
+                  txt.indexOf('network_interface') !== -1 ||
+                  txt.indexOf('networkinterface') !== -1 ||
+                  href.indexOf('netitf') !== -1 ||
+                  href.indexOf('net_itf') !== -1 ||
+                  onclick.indexOf('netitf') !== -1 ||
+                  onclick.indexOf('net_itf') !== -1 ||
+                  onclick.indexOf('status_net') !== -1
+                ) {
                   netItf = tags[i];
                   log("Network Interface cocok teks: '" + txt + "'");
                   break;
@@ -1235,8 +1271,26 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
               } else {
                 var tags3 = doc3.querySelectorAll('a, span, td, font');
                 for (var i3 = 0; i3 < tags3.length; i3++) {
-                  var txt3 = (tags3[i3].textContent || '').trim().toLowerCase();
-                  if (txt3 === 'pon inform' || txt3 === 'pon info' || txt3 === 'gpon inform') {
+                  var txt3 = (tags3[i3].textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                  var id3 = (tags3[i3].id || '').toLowerCase();
+                  var href3 = (tags3[i3].getAttribute('href') || '').toLowerCase();
+                  var onclick3 = (tags3[i3].getAttribute('onclick') || '').toLowerCase();
+
+                  if (
+                    id3 === 'smponinf' ||
+                    id3.indexOf('poninf') !== -1 ||
+                    id3.indexOf('poninfo') !== -1 ||
+                    txt3 === 'pon inform' ||
+                    txt3 === 'pon info' ||
+                    txt3 === 'gpon inform' ||
+                    txt3.indexOf('pon inform') !== -1 ||
+                    txt3.indexOf('pon info') !== -1 ||
+                    txt3.indexOf('pon status') !== -1 ||
+                    href3.indexOf('pon_info') !== -1 ||
+                    href3.indexOf('pon_inform') !== -1 ||
+                    href3.indexOf('pon_status') !== -1 ||
+                    onclick3.indexOf('pon') !== -1
+                  ) {
                     pon = tags3[i3];
                     log("PON Inform cocok teks: '" + txt3 + "'");
                     break;

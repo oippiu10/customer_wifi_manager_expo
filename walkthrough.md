@@ -109,4 +109,5 @@ Seluruh modifikasi kode telah di-stage dan di-commit dengan aman ke Git lokal un
 - **Commit 22**: `style: percantik antarmuka diagnostik dengan panel detail parameter optik (TX Power, Suhu, Status GPON) dan indikator progress pemindaian`
 - **Commit 23**: `fix: tingkatkan ketangguhan clickElement dengan mengekstrak atribut onclick inline dan memperbaiki fallback openLink di sub-dokumen defaultView`
 - **Commit 24**: `fix: pisahkan arah navigasi setelah login berhasil (LOGIN_CLICKED) berdasarkan menu aktif (status vs network) untuk memutus perulangan tak terbatas (looping)`
+- **Commit 25**: `fix: implementasikan pencarian frame secara rekursif mendalam (getAllDocs) dan toleransi spasi/newline (regex whitespace) untuk mengklik sub-menu Network Interface dan PON Inform`
 
