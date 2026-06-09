@@ -27,7 +27,7 @@ interface ModemWebViewScreenProps {
   customPassword?: string;
 }
 
-type NavPhase = 'idle' | 'network' | 'wlan' | 'diag_status' | 'diag_netitf' | 'diag_read' | 'done';
+type NavPhase = 'idle' | 'network' | 'wlan' | 'devices' | 'diag_status' | 'diag_netitf' | 'diag_read' | 'done';
 
 const makeAutoFillScript = (user: string, pass: string) => `
 (function() {
@@ -1357,12 +1357,23 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
         showCard();
         setStepLogin('loading');
       } else if (data.type === 'LOGIN_CLICKED') {
-        navPhaseRef.current = 'network';
         setStepLogin('done');
-        setStepNetwork('loading');
-        setTimeout(injectClickNetwork, 2500);
-        setTimeout(injectClickNetwork, 4000);
-        setTimeout(injectClickNetwork, 6000);
+        if (activeMenu === 'status') {
+          navPhaseRef.current = 'diag_status';
+          setDiagStep('status');
+          setTimeout(injectClickDiagStatus, 2500);
+          setTimeout(injectClickDiagStatus, 4000);
+        } else if (activeMenu === 'devices') {
+          navPhaseRef.current = 'devices';
+          setTimeout(injectReadDevices, 2500);
+          setTimeout(injectReadDevices, 4500);
+        } else {
+          navPhaseRef.current = 'network';
+          setStepNetwork('loading');
+          setTimeout(injectClickNetwork, 2500);
+          setTimeout(injectClickNetwork, 4000);
+          setTimeout(injectClickNetwork, 6000);
+        }
       } else if (data.type === 'NAV_NETWORK_CLICKED') {
         navPhaseRef.current = 'wlan';
         setStepNetwork('done');
