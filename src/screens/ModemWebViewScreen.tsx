@@ -13,6 +13,7 @@ import {
   Platform,
   BackHandler,
   Modal,
+  Easing,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Feather } from '@expo/vector-icons';
@@ -27,7 +28,7 @@ interface ModemWebViewScreenProps {
   customPassword?: string;
 }
 
-type NavPhase = 'idle' | 'network' | 'wlan' | 'devices' | 'diag_status' | 'diag_netitf' | 'diag_read' | 'done';
+type NavPhase = 'idle' | 'network' | 'wlan' | 'devices' | 'diag_status' | 'diag_netitf' | 'diag_read' | 'reboot' | 'done';
 
 const makeAutoFillScript = (user: string, pass: string) => `
 (function() {
@@ -36,6 +37,10 @@ const makeAutoFillScript = (user: string, pass: string) => `
   var isLogin = (pathname === '/' || pathname.indexOf('index.gch') !== -1 || pathname.indexOf('login') !== -1 || hasLoginUsername);
   if (!isLogin) {
     sessionStorage.removeItem('ag_auto_clicked');
+  } else {
+    try {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DETECTED_LOGIN_PAGE' }));
+    } catch(e) {}
   }
 
   function setNativeValue(el, value) {
@@ -270,10 +275,15 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
   const [showWlanForm, setShowWlanForm] = useState(false);
   const [activeMenu, setActiveMenu] = useState<'menu' | 'wlan' | 'devices' | 'status' | 'reboot'>('menu');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showRebootModal, setShowRebootModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [isScanningDevices, setIsScanningDevices] = useState(false);
   const [rebootStep, setRebootStep] = useState<'idle' | 'warning' | 'rebooting' | 'completed'>('idle');
   const [rebootCountdown, setRebootCountdown] = useState(60);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [wlanCountdown, setWlanCountdown] = useState(60);
+  const [showWlanSuccessModal, setShowWlanSuccessModal] = useState(false);
+  const [showSessionTimeoutModal, setShowSessionTimeoutModal] = useState(false);
   const [showWebView, setShowWebView] = useState(false);
   const [selectedSsid, setSelectedSsid] = useState('IGD.LD1.WLAN1');
   const [isSwitchingSsid, setIsSwitchingSsid] = useState(false);
@@ -281,15 +291,43 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [securePassword, setSecurePassword] = useState(true);
   const formHeightAnim = useRef(new Animated.Value(0)).current;
+  const isWlanFormValid = newSsid.trim().length > 0 && newPassword.length >= 8;
 
   // State real device list (dari DHCP lease table modem)
   type RealDevice = { name: string; ip: string; mac: string; port: string };
   const [realDevices, setRealDevices] = useState<RealDevice[]>([]);
+  const [scanDevicesTimeout, setScanDevicesTimeout] = useState(false);
+  const devicesTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const inactivityProgress = useRef(new Animated.Value(0)).current;
 
   // State real diagnostics (dari status page modem)
   type RealDiag = { rxPower: string; txPower: string; uptime: string; wanIp: string; firmware: string; temp: string; ponStatus: string };
   const [realDiag, setRealDiag] = useState<RealDiag | null>(null);
   const [diagLogs, setDiagLogs] = useState<string[]>([]);
+  // Ref untuk mencegah injectDiagLogger dipanggil berulang setelah data ditemukan
+  const diagDataFoundRef = useRef(false);
+
+  const parseRxPower = (valStr?: string) => {
+    if (!valStr) return null;
+    const match = valStr.match(/-?\d+(\.\d+)?/);
+    if (!match) return null;
+    let num = parseFloat(match[0]);
+    // Paksa nilai menjadi negatif karena redaman RX fiber selalu bernilai negatif
+    if (num > 0) {
+      num = -num;
+    }
+    return num;
+  };
+
+  const getRxPowerRating = (rxNum: number | null) => {
+    if (rxNum === null) return { text: 'Membaca...', color: '#64748B', bg: 'rgba(100, 116, 139, 0.1)' };
+    if (rxNum <= -29) return { text: 'Sangat Lemah / Rawan Putus', color: '#EF4444', bg: 'rgba(239, 68, 68, 0.15)' };
+    if (rxNum <= -26) return { text: 'Sinyal Lemah', color: '#F59E0B', bg: 'rgba(245, 158, 11, 0.15)' };
+    if (rxNum <= -7) return { text: 'Sangat Baik (Optimal)', color: '#10B981', bg: 'rgba(16, 189, 129, 0.15)' };
+    if (rxNum <= -5) return { text: 'Normal', color: '#06B6D4', bg: 'rgba(6, 182, 212, 0.15)' };
+    return { text: 'Terlalu Kuat (Overload)', color: '#EF4444', bg: 'rgba(239, 68, 68, 0.15)' };
+  };
 
   // Band WiFi aktif yang dipilih (2.4GHz = WLAN1, 5GHz = WLAN5)
   const [activeBand, setActiveBand] = useState<'2.4GHz' | '5GHz'>('2.4GHz');
@@ -299,32 +337,52 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
 
   // Efek animasi rotasi orbit radar yang super mulus
   useEffect(() => {
-    Animated.loop(
-      Animated.timing(orbitRotation, {
-        toValue: 1,
-        duration: 8000,
-        useNativeDriver: true,
-      })
-    ).start();
-  }, [orbitRotation]);
+    let animation: any;
+    if (activeMenu === 'menu') {
+      orbitRotation.setValue(0);
+      animation = Animated.loop(
+        Animated.timing(orbitRotation, {
+          toValue: 1,
+          duration: 8000,
+          useNativeDriver: true,
+        })
+      );
+      animation.start();
+    }
+    return () => {
+      if (animation) {
+        animation.stop();
+      }
+    };
+  }, [orbitRotation, activeMenu]);
 
   // Efek animasi bernapas (breathing scale) untuk ikon WiFi di pusat
   useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(wifiScale, {
-          toValue: 1.08,
-          duration: 1500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(wifiScale, {
-          toValue: 0.94,
-          duration: 1500,
-          useNativeDriver: true,
-        })
-      ])
-    ).start();
-  }, [wifiScale]);
+    let animation: any;
+    if (activeMenu === 'menu') {
+      wifiScale.setValue(1);
+      animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(wifiScale, {
+            toValue: 1.08,
+            duration: 1500,
+            useNativeDriver: true,
+          }),
+          Animated.timing(wifiScale, {
+            toValue: 0.94,
+            duration: 1500,
+            useNativeDriver: true,
+          })
+        ])
+      );
+      animation.start();
+    }
+    return () => {
+      if (animation) {
+        animation.stop();
+      }
+    };
+  }, [wifiScale, activeMenu]);
 
   // Interpolasi derajat putaran orbit
   const spinClockwise = orbitRotation.interpolate({
@@ -337,21 +395,17 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
     outputRange: ['360deg', '0deg']
   });
 
+  const timeoutRotation = inactivityProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg']
+  });
+
   // Efek timer hitung mundur untuk reboot modem
   useEffect(() => {
     let intervalId: any;
     if (rebootStep === 'rebooting') {
       intervalId = setInterval(() => {
-        setRebootCountdown(prev => {
-          if (prev <= 1) {
-            clearInterval(intervalId);
-            setRebootStep('completed');
-            Alert.alert('Sukses', 'Perintah reboot berhasil dijalankan. Modem sedang memuat ulang sistemnya, silakan hubungkan HP kembali setelah lampu indikator WiFi menyala normal.');
-            onBack(); // Kembali ke dashboard
-            return 0;
-          }
-          return prev - 1;
-        });
+        setRebootCountdown(prev => prev - 1);
       }, 1000);
     }
     return () => {
@@ -359,12 +413,61 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
     };
   }, [rebootStep]);
 
+  // Efek memantau hitungan mundur untuk menyelesaikan status reboot
+  useEffect(() => {
+    if (rebootStep === 'rebooting' && rebootCountdown <= 0) {
+      setRebootStep('completed');
+      setShowSuccessModal(true);
+    }
+  }, [rebootCountdown, rebootStep]);
+
+  // Efek timer hitung mundur untuk simpan konfigurasi WLAN
+  useEffect(() => {
+    let intervalId: any;
+    if (saveStatus === 'saving') {
+      intervalId = setInterval(() => {
+        setWlanCountdown(prev => prev - 1);
+      }, 1000);
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [saveStatus]);
+
+  // Efek memantau hitungan mundur untuk menyelesaikan status simpan WLAN
+  useEffect(() => {
+    if (saveStatus === 'saving' && wlanCountdown <= 0) {
+      setSaveStatus('success');
+      setShowWlanSuccessModal(true);
+    }
+  }, [wlanCountdown, saveStatus]);
+
   // Jika bukan mode teknisi, sembunyikan WebView secara paksa
   useEffect(() => {
     if (!isTechMode && showWebView) {
       setShowWebView(false);
     }
   }, [isTechMode]);
+
+  // Timeout 10 detik untuk scan perangkat terhubung jika loading macet
+  useEffect(() => {
+    if (isScanningDevices) {
+      setScanDevicesTimeout(false);
+      if (devicesTimerRef.current) clearTimeout(devicesTimerRef.current);
+      devicesTimerRef.current = setTimeout(() => {
+        setScanDevicesTimeout(true);
+      }, 10000);
+    } else {
+      if (devicesTimerRef.current) {
+        clearTimeout(devicesTimerRef.current);
+        devicesTimerRef.current = null;
+      }
+      setScanDevicesTimeout(false);
+    }
+    return () => {
+      if (devicesTimerRef.current) clearTimeout(devicesTimerRef.current);
+    };
+  }, [isScanningDevices]);
 
   // Efek tombol kembali fisik perangkat (BackHandler)
   // Menjaga agar jika user di sub-menu (WLAN, Devices, Status, Reboot), dia tidak terlempar keluar dari sesi/login
@@ -407,6 +510,8 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
         setRealDiag(null);
         setDiagLogs([]);
         setDiagStep('status');
+        // Reset flag agar logger bisa berjalan kembali di sesi baru
+        diagDataFoundRef.current = false;
         navPhaseRef.current = 'diag_status';
         injectClickDiagStatus();
         injectDiagLogger();
@@ -432,13 +537,61 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
     }
   }, [showWlanForm]);
 
-  const handleInjectReboot = () => {
-    setRebootStep('rebooting');
-    setRebootCountdown(60);
+  // Kembalikan nilai form input ke konfigurasi aktif asli jika form ditutup atau kembali ke menu dashboard
+  useEffect(() => {
+    if (activeMenu !== 'wlan' && !showWlanForm) {
+      setNewSsid(currentSsid);
+      setNewPassword(currentPassword);
+    }
+  }, [activeMenu, showWlanForm, currentSsid, currentPassword]);
 
-    // Injeksi JavaScript untuk reboot
+  // Fungsi untuk mereset timer inaktivitas (3 menit tanpa gerakan)
+  const resetInactivityTimer = () => {
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
+    }
+    
+    inactivityProgress.stopAnimation();
+    inactivityProgress.setValue(0);
+    
+    // Hanya pasang timer jika data WLAN sudah terload (artinya user sudah di dalam sesi dashboard/sub-menu)
+    // dan tidak sedang dalam proses kritis (saving/rebooting)
+    if (isWlanLoaded && saveStatus !== 'saving' && rebootStep !== 'rebooting') {
+      Animated.timing(inactivityProgress, {
+        toValue: 1,
+        duration: 3 * 60 * 1000, // 3 menit
+        useNativeDriver: true,
+        easing: Easing.linear,
+      }).start(({ finished }) => {
+        if (finished) {
+          console.log('[INACTIVITY] Tidak ada pergerakan selama 3 menit. Sesi berakhir.');
+          setShowSessionTimeoutModal(true);
+        }
+      });
+    }
+  };
+
+  // Jalankan / reset timer inaktivitas saat data terload, menu berubah, atau status simpan/reboot berubah
+  useEffect(() => {
+    resetInactivityTimer();
+    return () => {
+      inactivityProgress.stopAnimation();
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current);
+      }
+    };
+  }, [isWlanLoaded, activeMenu, saveStatus, rebootStep]);
+
+  // Langkah 1: Navigasi ke Halaman Reboot Modem ZTE
+  const injectRebootPage = () => {
+    navPhaseRef.current = 'reboot';
     webViewRef.current?.injectJavaScript(`
       (function() {
+        function log(msg) {
+          try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_LOG', logs: ['[REBOOT NAV] ' + msg] })); } catch(e) {}
+        }
+        log("Mulai injeksi halaman reboot...");
+        
         function getAllDocs() {
           var docs = [document];
           try { for (var f = 0; f < window.frames.length; f++) { try { docs.push(window.frames[f].document); } catch(e) {} } } catch(e) {}
@@ -446,19 +599,250 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
           return docs;
         }
         var docs = getAllDocs();
-        for (var i = 0; i < docs.length; i++) {
-          var doc = docs[i];
-          var btn = doc.getElementById('Btn_Reboot') || doc.getElementById('reboot') || doc.querySelector('input[type="button"][value*="Reboot"]') || doc.querySelector('input[type="button"][value*="Mulai Ulang"]');
-          if (btn) {
-            btn.click();
-            return "REBOOT_CLICKED";
+        var activePid = "1002";
+        for (var ad = 0; ad < docs.length; ad++) {
+          try {
+            var anchors = docs[ad].querySelectorAll('a[href], [onclick]');
+            for (var ai = 0; ai < anchors.length; ai++) {
+              var str = (anchors[ai].getAttribute('href') || '') + (anchors[ai].getAttribute('onclick') || '');
+              var match = str.match(/pid=(\d+)/i);
+              if (match && match[1]) {
+                activePid = match[1];
+                break;
+              }
+            }
+          } catch(e) {}
+          if (activePid !== "1002") break;
+        }
+        log("Active PID yang ditemukan: " + activePid);
+
+        // Coba cari menu Reboot dan klik
+        var clicked = false;
+        for (var d = 0; d < docs.length; d++) {
+          try {
+            var doc = docs[d];
+            var els = doc.querySelectorAll('a, span, td, font, li');
+            for (var i = 0; i < els.length; i++) {
+              var txt = (els[i].textContent || '').toLowerCase().trim();
+              var id = (els[i].id || '').toLowerCase();
+              var href = (els[i].getAttribute('href') || '').toLowerCase();
+              if (txt === 'reboot' || txt === 'mulai ulang' || txt === 'restart' || id === 'smdevreboot' || id.indexOf('reboot') !== -1 || href.indexOf('reboot') !== -1) {
+                var clickTarget = els[i];
+                while (clickTarget && clickTarget.tagName !== 'TR' && clickTarget.tagName !== 'A' && !clickTarget.onclick) {
+                  clickTarget = clickTarget.parentElement;
+                }
+                if (clickTarget) {
+                  log("Menemukan menu Reboot: " + txt + " (ID: " + id + ")");
+                  clickTarget.click();
+                  clickTarget.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+                  clicked = true;
+                  break;
+                }
+              }
+            }
+            if (clicked) break;
+          } catch(e) {}
+        }
+
+        // Jika tidak ada menu, arahkan via openLink atau URL langsung
+        if (!clicked) {
+          log("Menu Reboot tidak ditemukan, mencoba navigasi URL dengan PID: " + activePid);
+          try {
+            var navWin = window;
+            if (typeof openLink !== 'function') {
+              if (parent && typeof parent.openLink === 'function') navWin = parent;
+              else if (top && typeof top.openLink === 'function') navWin = top;
+              else {
+                for (var ad = 0; ad < docs.length; ad++) {
+                  try {
+                    if (docs[ad].defaultView && typeof docs[ad].defaultView.openLink === 'function') {
+                      navWin = docs[ad].defaultView;
+                      break;
+                    }
+                  } catch(e) {}
+                }
+              }
+            }
+            if (typeof navWin.openLink === 'function') {
+              log("Navigasi via openLink...");
+              navWin.openLink('getpage.gch?pid=' + activePid + '&nextpage=manager_dev_restart_t.gch');
+            } else {
+              log("Navigasi via window.location...");
+              if (window.top) {
+                window.top.location.href = 'getpage.gch?pid=' + activePid + '&nextpage=manager_dev_restart_t.gch';
+              } else {
+                window.location.href = 'getpage.gch?pid=' + activePid + '&nextpage=manager_dev_restart_t.gch';
+              }
+            }
+          } catch(e) {
+            log("Navigasi error: " + e.message);
+            window.location.href = 'getpage.gch?pid=' + activePid + '&nextpage=manager_dev_restart_t.gch';
           }
         }
-        // Redirect ke halaman reboot bawaan ZTE jika tidak ketemu tombol langsung
-        window.location.href = '/manager_dev_reboot_t.gch';
-        return "REBOOT_REDIRECTED";
-      })()
+      })();
+      true;
     `);
+  };
+
+  // Langkah 2: Klik Tombol Reboot & Bypass Dialog Konfirmasi Modem
+  const injectClickRebootButton = () => {
+    webViewRef.current?.injectJavaScript(`
+      (function() {
+        if (window.agRebootBtnTimer) {
+          clearTimeout(window.agRebootBtnTimer);
+        }
+        
+        var retries = 0;
+        var maxRetries = 15;
+
+        function log(msg) {
+          try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_LOG', logs: ['[REBOOT BTN] ' + msg] })); } catch(e) {}
+        }
+
+        function tryClickReboot() {
+          log("Mencari tombol reboot utama (percobaan " + (retries + 1) + ")...");
+          var docs = [];
+          function collect(win) {
+            try {
+              if (win.document && docs.indexOf(win.document) === -1) {
+                docs.push(win.document);
+              }
+            } catch(e) {}
+            try {
+              for (var i = 0; i < win.frames.length; i++) {
+                collect(win.frames[i]);
+              }
+            } catch(e) {}
+          }
+          collect(window);
+
+          var clicked = false;
+
+          for (var i = 0; i < docs.length; i++) {
+            try {
+              var doc = docs[i];
+              if (doc.defaultView) {
+                doc.defaultView.confirm = function() { return true; };
+              }
+
+              // Cek jika popup konfirmasi (msgconfirmb) sudah ada duluan
+              var confirmBtn = doc.getElementById('msgconfirmb');
+              if (confirmBtn) {
+                log("Popup konfirmasi ditemukan duluan! Mengklik...");
+                confirmBtn.click();
+                clicked = true;
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REBOOT_CLICKED_SUCCESS', detail: 'popup' }));
+                return;
+              }
+
+              // Coba fungsi bypass ZTE F663V3A langsung untuk kecepatan maksimal
+              if (doc.defaultView && typeof doc.defaultView.msgCallback === 'function') {
+                 log("Mengeksekusi bypass ZTE msgCallback()...");
+                 doc.defaultView.msgCallback();
+                 clicked = true;
+                 window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REBOOT_CLICKED_SUCCESS', detail: 'bypass' }));
+                 return;
+              }
+
+              // Cari tombol Reboot utama
+              var buttons = doc.querySelectorAll('input[type="button"], input[type="submit"], button');
+              for (var b = 0; b < buttons.length; b++) {
+                var val = (buttons[b].value || buttons[b].textContent || buttons[b].innerText || '').toLowerCase().trim();
+                var id = (buttons[b].id || '').toLowerCase();
+                var name = (buttons[b].name || '').toLowerCase();
+
+                if (
+                  id === 'btn_reboot' || id === 'reboot' || id === 'submit1' || 
+                  val === 'reboot' || val === 'mulai ulang' || val.indexOf('reboot') !== -1 ||
+                  name === 'reboot' || name === 'btn_reboot'
+                ) {
+                  if (val.indexOf('default') === -1 && id.indexOf('default') === -1) {
+                    log("Tombol reboot utama ditemukan (ID: " + id + ", Value: " + val + ")");
+                    
+                    // Coba panggil fungsi bypass jika tersedia
+                    if (doc.defaultView && typeof doc.defaultView.uiDoReboot === 'function') {
+                      log("Memanggil fungsi uiDoReboot()...");
+                      doc.defaultView.uiDoReboot();
+                    } else if (doc.defaultView && typeof doc.defaultView.btnReboot === 'function') {
+                      log("Memanggil fungsi btnReboot()...");
+                      doc.defaultView.btnReboot();
+                    } else if (doc.defaultView && typeof doc.defaultView.Submit === 'function' && id === 'btn_reboot') {
+                      log("Memanggil fungsi Submit()...");
+                      doc.defaultView.Submit();
+                    } else {
+                      log("Melakukan klik tombol secara simulasi...");
+                      buttons[b].click();
+                      buttons[b].dispatchEvent(new MouseEvent('click', {bubbles:true}));
+                    }
+
+                    clicked = true;
+                    
+                    // Tunggu sesaat barangkali popup muncul setelah klik
+                    setTimeout(function() {
+                      for (var x = 0; x < docs.length; x++) {
+                        try {
+                          var cBtn = docs[x].getElementById('msgconfirmb');
+                          if (cBtn) {
+                            log("Popup konfirmasi muncul pasca-klik! Mengklik...");
+                            cBtn.click();
+                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REBOOT_CLICKED_SUCCESS', detail: 'delayed_popup' }));
+                          }
+                        } catch(err) {}
+                      }
+                    }, 500);
+
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REBOOT_CLICKED_SUCCESS', detail: 'button' }));
+                    return;
+                  }
+                }
+              }
+            } catch(e) {}
+          }
+
+          if (!clicked) {
+            retries++;
+            if (retries < maxRetries) {
+              window.agRebootBtnTimer = setTimeout(tryClickReboot, 800);
+            } else {
+              log("Gagal menemukan tombol reboot setelah 15 percobaan!");
+              // DEBUG DUMP: Crawl halaman dan kumpulkan info untuk dikirim ke terminal
+              var debugInfo = [];
+              for (var d = 0; d < docs.length; d++) {
+                try {
+                  var docUrl = docs[d].defaultView ? docs[d].defaultView.location.href : 'unknown';
+                  debugInfo.push("FRAME " + d + " URL: " + docUrl);
+                  
+                  var btns = docs[d].querySelectorAll('input[type="button"], input[type="submit"], button, a, span, td');
+                  var btnList = [];
+                  for (var x = 0; x < btns.length && btnList.length < 40; x++) {
+                    var text = (btns[x].textContent || btns[x].innerText || btns[x].value || '').replace(/\\s+/g, ' ').trim();
+                    var id = btns[x].id || '';
+                    if (text && text.length > 2 && text.length < 30) {
+                      btnList.push((id ? '#' + id + ':' : '') + text);
+                    }
+                  }
+                  debugInfo.push("ELEMEN DI FRAME " + d + ": " + btnList.join(' | '));
+                } catch(e) {}
+              }
+              log("DEBUG DUMP: " + debugInfo.join(' \\n '));
+            }
+          }
+        }
+
+        tryClickReboot();
+      })();
+      true;
+    `);
+  };
+
+  const handleInjectReboot = () => {
+    setShowRebootModal(false);
+    setRebootStep('rebooting');
+    setRebootCountdown(60);
+    injectRebootPage();
+    
+    // Fallback: Pastikan injectClickRebootButton tetap dipanggil meskipun navigasi openLink di dalam iframe tidak memicu onNavigationStateChange
+    setTimeout(injectClickRebootButton, 2000);
   };
 
   const getPasswordStrength = (pass: string) => {
@@ -493,6 +877,12 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
     if (isSwitchingSsid) return;
     setIsSwitchingSsid(true);
     setSelectedSsid(ssidValue);
+    // Sinkronkan label band WiFi berdasarkan SSID yang dipilih
+    if (ssidValue.toUpperCase().includes('WLAN5') || ssidValue.includes('5G')) {
+      setActiveBand('5GHz');
+    } else {
+      setActiveBand('2.4GHz');
+    }
     setIsWlanLoaded(false);
     setStepWlan('loading');
     navPhaseRef.current = 'wlan'; // reset phase to load details
@@ -744,6 +1134,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
   };
 
   const injectSaveWlanDetails = (ssid: string, password: string) => {
+    setWlanCountdown(60);
     setSaveStatus('saving');
     webViewRef.current?.injectJavaScript(`
       (function() {
@@ -794,9 +1185,53 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
     `);
   };
 
-  // Membaca daftar perangkat terhubung dari DHCP lease table ZTE F663V3A
+  // Membaca langsung daftar perangkat terhubung dari DHCP lease table (tanpa navigasi ulang)
+  const injectOnlyReadDevices = () => {
+    setIsScanningDevices(true);
+    navPhaseRef.current = 'devices';
+    webViewRef.current?.injectJavaScript(`
+      (function() {
+        function getAllDocs() {
+          var docs = [document];
+          try { for (var f = 0; f < window.frames.length; f++) { try { docs.push(window.frames[f].document); } catch(e) {} } } catch(e) {}
+          try { var ifs = document.querySelectorAll('iframe'); for (var fi = 0; fi < ifs.length; fi++) { try { if (ifs[fi].contentDocument) docs.push(ifs[fi].contentDocument); } catch(e) {} } } catch(e) {}
+          return docs;
+        }
+        var docs = getAllDocs();
+        var devices = [];
+        for (var d = 0; d < docs.length; d++) {
+          try {
+            var doc = docs[d];
+            var instNum = doc.getElementById('IF_INSTNUM');
+            if (!doc.getElementById('IF_INSTNUM')) continue;
+            var num = parseInt(instNum.value || '0', 10);
+            for (var i = 0; i < num; i++) {
+              var ipEl  = doc.getElementById('IPAddr'  + i);
+              var macEl = doc.getElementById('MACAddr' + i);
+              var nameEl= doc.getElementById('HostName'+ i);
+              var portEl= doc.getElementById('PhyPortName'+i);
+              if (ipEl && ipEl.value) {
+                devices.push({
+                  ip  : ipEl.value,
+                  mac : macEl  ? macEl.value   : '-',
+                  name: nameEl ? nameEl.value  : '',
+                  port: portEl ? portEl.value  : '-'
+                });
+              }
+            }
+            if (devices.length > 0) break;
+          } catch(e) {}
+        }
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEVICE_DATA_READ', devices: devices }));
+      })();
+      true;
+    `);
+  };
+
+  // Membaca daftar perangkat terhubung dari DHCP lease table ZTE F663V3A (Navigasi jika belum di halaman)
   const injectReadDevices = () => {
     setIsScanningDevices(true);
+    navPhaseRef.current = 'devices';
     webViewRef.current?.injectJavaScript(`
       (function() {
         function getAllDocs() {
@@ -806,88 +1241,16 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
           return docs;
         }
 
-        // Coba klik menu DOM untuk menjamin session & referer valid
-        var clicked = false;
         var docs = getAllDocs();
-        
-        // 1. Cari ssmDHCPSer (DHCP Server)
+        var isOnPage = false;
         for (var d = 0; d < docs.length; d++) {
-          try {
-            var doc = docs[d];
-            var el = doc.getElementById('ssmDHCPSer') || doc.querySelector('[id*="DHCPSer"]') || doc.querySelector('[id*="dhcp_server"]');
-            if (el) {
-              var clickTarget = el;
-              while (clickTarget && clickTarget.tagName !== 'TR' && clickTarget.tagName !== 'A' && !clickTarget.onclick) {
-                clickTarget = clickTarget.parentElement;
-              }
-              if (clickTarget) {
-                clickTarget.click();
-                clickTarget.dispatchEvent(new MouseEvent('click', {bubbles:true}));
-                clicked = true;
-                break;
-              }
-            }
-          } catch(e) {}
-        }
-
-        // 2. Jika gagal, cari smAddMgr (LAN Menu)
-        if (!clicked) {
-          for (var d = 0; d < docs.length; d++) {
-            try {
-              var doc = docs[d];
-              var el = doc.getElementById('smAddMgr') || doc.querySelector('[id*="AddMgr"]') || doc.querySelector('[id*="menu_lan"]');
-              if (el) {
-                var clickTarget = el;
-                while (clickTarget && clickTarget.tagName !== 'TR' && clickTarget.tagName !== 'A' && !clickTarget.onclick) {
-                  clickTarget = clickTarget.parentElement;
-                }
-                if (clickTarget) {
-                  clickTarget.click();
-                  clickTarget.dispatchEvent(new MouseEvent('click', {bubbles:true}));
-                  clicked = true;
-                  break;
-                }
-              }
-            } catch(e) {}
+          if (docs[d].getElementById('IF_INSTNUM')) {
+            isOnPage = true;
+            break;
           }
         }
 
-        // 3. Fallback jika DOM click gagal
-        if (!clicked) {
-          var navWin = window;
-          if (typeof openLink !== 'function') {
-            if (parent && typeof parent.openLink === 'function') navWin = parent;
-            else if (top && typeof top.openLink === 'function') navWin = top;
-            else {
-              for (var d = 0; d < docs.length; d++) {
-                try {
-                  if (docs[d].defaultView && typeof docs[d].defaultView.openLink === 'function') {
-                    navWin = docs[d].defaultView;
-                    break;
-                  }
-                } catch(e) {}
-              }
-            }
-          }
-          try {
-            if (typeof navWin.OnMenuItemClick === 'function') {
-              navWin.OnMenuItemClick('mmNet', 'smAddMgr');
-            }
-            if (typeof navWin.openLink === 'function') {
-              navWin.openLink('getpage.gch?pid=1002&nextpage=net_dhcp_dynamic_t.gch');
-            } else {
-              window.location.href = 'getpage.gch?pid=1002&nextpage=net_dhcp_dynamic_t.gch';
-            }
-          } catch(e) {
-            try {
-              window.location.href = 'getpage.gch?pid=1002&nextpage=net_dhcp_dynamic_t.gch';
-            } catch(err) {}
-          }
-        }
-
-        // Baca data perangkat setelah delay pemuatan halaman (2.5 detik)
-        setTimeout(function() {
-          var docs = getAllDocs();
+        if (isOnPage) {
           var devices = [];
           for (var d = 0; d < docs.length; d++) {
             try {
@@ -913,7 +1276,81 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
             } catch(e) {}
           }
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEVICE_DATA_READ', devices: devices }));
-        }, 2500);
+        } else {
+          var clicked = false;
+          
+          for (var d = 0; d < docs.length; d++) {
+            try {
+              var doc = docs[d];
+              var el = doc.getElementById('ssmDHCPSer') || doc.querySelector('[id*="DHCPSer"]') || doc.querySelector('[id*="dhcp_server"]');
+              if (el) {
+                var clickTarget = el;
+                while (clickTarget && clickTarget.tagName !== 'TR' && clickTarget.tagName !== 'A' && !clickTarget.onclick) {
+                  clickTarget = clickTarget.parentElement;
+                }
+                if (clickTarget) {
+                  clickTarget.click();
+                  clickTarget.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+                  clicked = true;
+                  break;
+                }
+              }
+            } catch(e) {}
+          }
+
+          if (!clicked) {
+            for (var d = 0; d < docs.length; d++) {
+              try {
+                var doc = docs[d];
+                var el = doc.getElementById('smAddMgr') || doc.querySelector('[id*="AddMgr"]') || doc.querySelector('[id*="menu_lan"]');
+                if (el) {
+                  var clickTarget = el;
+                  while (clickTarget && clickTarget.tagName !== 'TR' && clickTarget.tagName !== 'A' && !clickTarget.onclick) {
+                    clickTarget = clickTarget.parentElement;
+                  }
+                  if (clickTarget) {
+                    clickTarget.click();
+                    clickTarget.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+                    clicked = true;
+                    break;
+                  }
+                }
+              } catch(e) {}
+            }
+          }
+
+          if (!clicked) {
+            var navWin = window;
+            if (typeof openLink !== 'function') {
+              if (parent && typeof parent.openLink === 'function') navWin = parent;
+              else if (top && typeof top.openLink === 'function') navWin = top;
+              else {
+                for (var d = 0; d < docs.length; d++) {
+                  try {
+                    if (docs[d].defaultView && typeof docs[d].defaultView.openLink === 'function') {
+                      navWin = docs[d].defaultView;
+                      break;
+                    }
+                  } catch(e) {}
+                }
+              }
+            }
+            try {
+              if (typeof navWin.OnMenuItemClick === 'function') {
+                navWin.OnMenuItemClick('mmNet', 'smAddMgr');
+              }
+              if (typeof navWin.openLink === 'function') {
+                navWin.openLink('getpage.gch?pid=1002&nextpage=net_dhcp_dynamic_t.gch');
+              } else {
+                window.location.href = 'getpage.gch?pid=1002&nextpage=net_dhcp_dynamic_t.gch';
+              }
+            } catch(e) {
+              try {
+                window.location.href = 'getpage.gch?pid=1002&nextpage=net_dhcp_dynamic_t.gch';
+              } catch(err) {}
+            }
+          }
+        }
       })();
       true;
     `);
@@ -924,6 +1361,9 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
       (function() {
         if (window.diagLoggerInterval) clearInterval(window.diagLoggerInterval);
         window.diagLoggerInterval = setInterval(function() {
+          var rxFound = null;
+          var diag = { rxPower:'', txPower:'', uptime:'', wanIp:'', firmware:'', temp:'', ponStatus:'' };
+          
           function getAllDocsInfo() {
             var info = [];
             var docs = [];
@@ -938,14 +1378,13 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
               } catch(e) { return; }
               try {
                 for (var i = 0; i < win.frames.length; i++) {
-                  collect(win.frames[i]);
+                  try {
+                    collect(win.frames[i]);
+                  } catch(ex) {}
                 }
               } catch(e) {}
             }
             collect(window);
-            
-            var rxFound = null;
-            var diag = { rxPower:'', txPower:'', uptime:'', wanIp:'', firmware:'', temp:'', ponStatus:'' };
 
             for (var i = 0; i < docs.length; i++) {
               try {
@@ -954,51 +1393,92 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                 var ids = [];
                 if (d.getElementById('mmStatus')) ids.push('mmStatus');
                 if (d.getElementById('smNetItf')) ids.push('smNetItf');
+                if (d.getElementById('smWanStatu')) ids.push('smWanStatu');
                 if (d.getElementById('smPONInf')) ids.push('smPONInf');
+                if (d.getElementById('ssmLinkState')) ids.push('ssmLinkState');
                 info.push("Frame " + i + " URL: " + url + " | IDs: [" + ids.join(',') + "]");
                 
+                // Deteksi Elemen Form/Input Langsung Berdasarkan ID yang Umum
+                var rxEl = d.getElementById('Frm_RxPower') || d.getElementById('RxPower') || d.getElementById('Frm_RxOpticalPower') || d.getElementById('RxOpticalPower') || d.getElementById('rx_power') || d.getElementById('rxpower');
+                var txEl = d.getElementById('Frm_TxPower') || d.getElementById('TxPower') || d.getElementById('Frm_TxOpticalPower') || d.getElementById('TxOpticalPower') || d.getElementById('tx_power') || d.getElementById('txpower');
+                var tempEl = d.getElementById('Frm_Temp') || d.getElementById('Temp') || d.getElementById('Frm_Temperature') || d.getElementById('Temperature') || d.getElementById('temp') || d.getElementById('temperature');
+                var statusEl = d.getElementById('Frm_GponState') || d.getElementById('GponState') || d.getElementById('Frm_PonStatus') || d.getElementById('PonStatus') || d.getElementById('gpon_state') || d.getElementById('pon_status');
+
+                if (rxEl) {
+                  diag.rxPower = rxEl.value || rxEl.textContent || rxEl.innerText || '';
+                  if (diag.rxPower) rxFound = diag.rxPower;
+                }
+                if (txEl) {
+                  diag.txPower = txEl.value || txEl.textContent || txEl.innerText || '';
+                }
+                if (tempEl) {
+                  diag.temp = tempEl.value || tempEl.textContent || tempEl.innerText || '';
+                }
+                if (statusEl) {
+                  diag.ponStatus = statusEl.value || statusEl.textContent || statusEl.innerText || '';
+                }
+
                 // Pindai data redaman secara dinamis di frame ini jika ada
-                var rows = d.querySelectorAll('tr');
-                for (var r = 0; r < rows.length; r++) {
-                  var tds = rows[r].querySelectorAll('td');
-                  if (tds.length >= 2) {
-                    var label = (tds[0].textContent || tds[0].innerText || '').toLowerCase().trim();
-                    var value = (tds[1].textContent || tds[1].innerText || '').trim();
-                    if (
-                      (label.indexOf('input') !== -1 && label.indexOf('power') !== -1) || 
-                      label.indexOf('rx') !== -1 || 
-                      label.indexOf('rxoptical') !== -1 || 
-                      label.indexOf('receiver') !== -1 || 
-                      label.indexOf('penerima') !== -1
-                    ) {
-                      diag.rxPower = value;
-                      rxFound = value;
-                    } else if (
-                      (label.indexOf('output') !== -1 && label.indexOf('power') !== -1) || 
-                      label.indexOf('tx') !== -1 || 
-                      label.indexOf('txoptical') !== -1 || 
-                      label.indexOf('transmitter') !== -1 || 
-                      label.indexOf('pemancar') !== -1
-                    ) {
-                      diag.txPower = value;
-                    } else if (label.indexOf('temperature') !== -1 || label.indexOf('suhu') !== -1 || label.indexOf('temp') !== -1) {
-                      diag.temp = value;
-                    } else if (label.indexOf('gpon state') !== -1 || label.indexOf('pon status') !== -1 || label.indexOf('state') !== -1) {
-                      diag.ponStatus = value;
+                if (!rxFound) {
+                  var rows = d.querySelectorAll('tr');
+                  for (var r = 0; r < rows.length; r++) {
+                    var tds = rows[r].querySelectorAll('td');
+                    if (tds.length >= 2) {
+                      var label = (tds[0].textContent || tds[0].innerText || '').toLowerCase().trim();
+                      
+                      var cell = tds[1];
+                      var inputEl = cell.querySelector('input, select, textarea');
+                      var value = '';
+                      if (inputEl) {
+                        value = inputEl.value;
+                      } else {
+                        value = cell.textContent || cell.innerText || '';
+                      }
+                      value = value.trim();
+
+                      if (
+                        (label.indexOf('input') !== -1 && label.indexOf('power') !== -1) || 
+                        label.indexOf('rx') !== -1 || 
+                        label.indexOf('rxoptical') !== -1 || 
+                        label.indexOf('receiver') !== -1 || 
+                        label.indexOf('penerima') !== -1 ||
+                        label.indexOf('redaman') !== -1
+                      ) {
+                        diag.rxPower = value;
+                        if (value) rxFound = value;
+                      } else if (
+                        (label.indexOf('output') !== -1 && label.indexOf('power') !== -1) || 
+                        label.indexOf('tx') !== -1 || 
+                        label.indexOf('txoptical') !== -1 || 
+                        label.indexOf('transmitter') !== -1 || 
+                        label.indexOf('pemancar') !== -1
+                      ) {
+                        diag.txPower = value;
+                      } else if (label.indexOf('temperature') !== -1 || label.indexOf('suhu') !== -1 || label.indexOf('temp') !== -1) {
+                        diag.temp = value;
+                      } else if (label.indexOf('gpon state') !== -1 || label.indexOf('pon status') !== -1 || label.indexOf('state') !== -1) {
+                        diag.ponStatus = value;
+                      }
                     }
                   }
                 }
               } catch(err) {}
             }
             
-            if (rxFound) {
+            if (rxFound && diag.rxPower && diag.rxPower !== '') {
               window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_DATA_READ', diag: diag }));
+              if (window.diagLoggerInterval) {
+                clearInterval(window.diagLoggerInterval);
+                window.diagLoggerInterval = null;
+              }
             }
             
             return info;
           }
           var logs = getAllDocsInfo();
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_LOG', logs: logs }));
+          if (!rxFound) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_LOG', logs: logs }));
+          }
         }, 1500);
       })();
       true;
@@ -1027,7 +1507,9 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
             } catch(e) {}
             try {
               for (var i = 0; i < win.frames.length; i++) {
-                collect(win.frames[i]);
+                try {
+                  collect(win.frames[i]);
+                } catch(ex) {}
               }
             } catch(e) {}
           }
@@ -1071,75 +1553,105 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
           }
         }
 
-        log("Mencari tombol menu Status...");
-        var docs = getAllDocs();
-        var mmStatus = null;
-        for (var d = 0; d < docs.length; d++) {
-          try {
-            var doc = docs[d];
-            mmStatus = doc.getElementById('mmStatus') || doc.getElementById('Fnt_mmStatus');
-            if (mmStatus) {
-              log("Menu Status ditemukan lewat ID");
-            } else {
-              var tags = doc.querySelectorAll('a, span, td, font');
-              for (var i = 0; i < tags.length; i++) {
-                var txt = (tags[i].textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
-                var id = (tags[i].id || '').toLowerCase();
-                var href = (tags[i].href || '').toLowerCase();
-                
-                if (txt.indexOf('logout') !== -1 || id.indexOf('logout') !== -1) continue;
+        var statusRetries = 0;
+        var maxStatusRetries = 15; // Coba cari selama 7.5 detik (15 * 500ms)
 
-                if (
-                  txt === 'status' || 
-                  txt === '-status' || 
-                  txt === '+status' || 
-                  id === 'mmstatus' ||
-                  id.indexOf('mmstatus') !== -1 ||
-                  href.indexOf('menu_status_t.gch') !== -1
-                ) {
-                  mmStatus = tags[i];
-                  log("Menu Status cocok teks: '" + txt + "'");
-                  break;
-                }
-              }
-            }
-            if (mmStatus) {
-              log("Mengklik Menu Status...");
-              var clicked = clickElement(mmStatus);
-              if (clicked) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_STATUS_CLICKED' }));
-                return true;
-              }
-            }
-          } catch(e) {
-            log("Error mencari menu Status: " + e.message);
-          }
-        }
-        
-        log("Menu Status tidak ditemukan di DOM. Mencoba openLink langsung...");
-        try {
-          var navWin = window;
-          if (typeof openLink !== 'function') {
-            if (parent && typeof parent.openLink === 'function') navWin = parent;
-            else if (top && typeof top.openLink === 'function') navWin = top;
-            else {
-              for (var d = 0; d < docs.length; d++) {
-                try {
-                  if (docs[d].defaultView && typeof docs[d].defaultView.openLink === 'function') {
-                    navWin = docs[d].defaultView;
+        function tryClickStatus() {
+          log("Mencari tombol menu Status (percobaan " + (statusRetries + 1) + ")...");
+          var docs = getAllDocs();
+          var mmStatus = null;
+          for (var d = 0; d < docs.length; d++) {
+            try {
+              var doc = docs[d];
+              mmStatus = doc.getElementById('mmStatus') || doc.getElementById('Fnt_mmStatus');
+              if (mmStatus) {
+                log("Menu Status ditemukan lewat ID");
+              } else {
+                var tags = doc.querySelectorAll('a, span, td, font');
+                for (var i = 0; i < tags.length; i++) {
+                  var txt = (tags[i].textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                  var id = (tags[i].id || '').toLowerCase();
+                  var href = (tags[i].href || '').toLowerCase();
+                  
+                  if (txt.indexOf('logout') !== -1 || id.indexOf('logout') !== -1) continue;
+
+                  if (
+                    txt === 'status' || 
+                    txt === '-status' || 
+                    txt === '+status' || 
+                    id === 'mmstatus' ||
+                    id.indexOf('mmstatus') !== -1 ||
+                    href.indexOf('menu_status_t.gch') !== -1
+                  ) {
+                    mmStatus = tags[i];
+                    log("Menu Status cocok teks: '" + txt + "'");
                     break;
                   }
-                } catch(e) {}
+                }
               }
+              if (mmStatus) {
+                log("Mengklik Menu Status...");
+                var clicked = clickElement(mmStatus);
+                if (clicked) {
+                  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_STATUS_CLICKED' }));
+                  return; // Sukses keluar
+                }
+              }
+            } catch(e) {
+              log("Error mencari menu Status: " + e.message);
             }
           }
-          if (typeof navWin.openLink === 'function') {
-            navWin.openLink('getpage.gch?pid=1002&nextpage=status_dev_info_t.gch');
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_STATUS_CLICKED' }));
-            return true;
+
+          statusRetries++;
+          if (statusRetries < maxStatusRetries) {
+            setTimeout(tryClickStatus, 500);
+          } else {
+            log("Menu Status tidak ditemukan di DOM secara normal. Mencoba openLink langsung...");
+            try {
+              var navWin = window;
+              if (typeof openLink !== 'function') {
+                if (parent && typeof parent.openLink === 'function') navWin = parent;
+                else if (top && typeof top.openLink === 'function') navWin = top;
+                else {
+                  for (var ad = 0; ad < docs.length; ad++) {
+                    try {
+                      if (docs[ad].defaultView && typeof docs[ad].defaultView.openLink === 'function') {
+                        navWin = docs[ad].defaultView;
+                        break;
+                      }
+                    } catch(e) {}
+                  }
+                }
+              }
+              if (typeof navWin.openLink === 'function') {
+                var activePid = "1002";
+                for (var ad = 0; ad < docs.length; ad++) {
+                  try {
+                    var anchors = docs[ad].querySelectorAll('a[href], [onclick]');
+                    for (var ai = 0; ai < anchors.length; ai++) {
+                      var str = (anchors[ai].getAttribute('href') || '') + (anchors[ai].getAttribute('onclick') || '');
+                      var match = str.match(/pid=(\d+)/i);
+                      if (match && match[1]) {
+                        activePid = match[1];
+                        break;
+                      }
+                    }
+                  } catch(e) {}
+                  if (activePid !== "1002") break;
+                }
+                log("Menggunakan activePid: " + activePid);
+                navWin.openLink('getpage.gch?pid=' + activePid + '&nextpage=status_dev_info_t.gch');
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_STATUS_CLICKED' }));
+              } else {
+                log("Fungsi openLink tidak ditemukan. Gagal menavigasi.");
+              }
+            } catch(e) {
+              log("Gagal melakukan navigasi langsung: " + e.message);
+            }
           }
-        } catch(e) {}
-        return false;
+        }
+
+        tryClickStatus();
       })();
       true;
     `);
@@ -1166,7 +1678,9 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
             } catch(e) {}
             try {
               for (var i = 0; i < win.frames.length; i++) {
-                collect(win.frames[i]);
+                try {
+                  collect(win.frames[i]);
+                } catch(ex) {}
               }
             } catch(e) {}
           }
@@ -1216,7 +1730,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
         for (var d = 0; d < docs.length; d++) {
           try {
             var doc = docs[d];
-            netItf = doc.getElementById('smNetItf') || doc.getElementById('Fnt_smNetItf') || doc.getElementById('smNet');
+            netItf = doc.getElementById('smNetItf') || doc.getElementById('smWanStatu') || doc.getElementById('smWanStatus') || doc.getElementById('Fnt_smNetItf') || doc.getElementById('smNet');
             if (netItf) {
               log("Network Interface ditemukan lewat ID");
             } else {
@@ -1258,14 +1772,17 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
           }
         }
 
-        setTimeout(function() {
-          log("Mencari sub-menu PON Inform...");
+        var ponRetries = 0;
+        var maxPonRetries = 15; // Coba cari selama 7.5 detik (15 * 500ms)
+
+        function tryClickPon() {
+          log("Mencari sub-menu PON Inform (percobaan " + (ponRetries + 1) + ")...");
           var docs3 = getAllDocs();
           var pon = null;
           for (var d3 = 0; d3 < docs3.length; d3++) {
             try {
               var doc3 = docs3[d3];
-              pon = doc3.getElementById('smPONInf') || doc3.getElementById('smPONStatus') || doc3.querySelector('[onclick*="status_dev_pon_t.gch"]');
+              pon = doc3.getElementById('smPONInf') || doc3.getElementById('ssmLinkState') || doc3.getElementById('smPONStatus') || doc3.querySelector('[onclick*="status_dev_pon_t.gch"]');
               if (pon) {
                 log("PON Inform ditemukan lewat ID/onclick");
               } else {
@@ -1302,7 +1819,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                 var clickedPon = clickElement(pon);
                 if (clickedPon) {
                   window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_PON_CLICKED' }));
-                  return;
+                  return; // Sukses keluar
                 }
               }
             } catch(e) {
@@ -1310,30 +1827,56 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
             }
           }
 
-          log("PON Inform tidak ditemukan di DOM. Mencoba openLink langsung...");
-          try {
-            var navWin = window;
-            if (typeof openLink !== 'function') {
-              if (parent && typeof parent.openLink === 'function') navWin = parent;
-              else if (top && typeof top.openLink === 'function') navWin = top;
-              else {
-                for (var d3 = 0; d3 < docs3.length; d3++) {
-                  try {
-                    if (docs3[d3].defaultView && typeof docs3[d3].defaultView.openLink === 'function') {
-                      navWin = docs3[d3].defaultView;
-                      break;
-                    }
-                  } catch(e) {}
+          ponRetries++;
+          if (ponRetries < maxPonRetries) {
+            setTimeout(tryClickPon, 500);
+          } else {
+            log("PON Inform tidak ditemukan di DOM secara normal. Mencoba openLink langsung...");
+            try {
+              var navWin = window;
+              if (typeof openLink !== 'function') {
+                if (parent && typeof parent.openLink === 'function') navWin = parent;
+                else if (top && typeof top.openLink === 'function') navWin = top;
+                else {
+                  for (var ad3 = 0; ad3 < docs3.length; ad3++) {
+                    try {
+                      if (docs3[ad3].defaultView && typeof docs3[ad3].defaultView.openLink === 'function') {
+                        navWin = docs3[ad3].defaultView;
+                        break;
+                      }
+                    } catch(e) {}
+                  }
                 }
               }
+              if (typeof navWin.openLink === 'function') {
+                var activePid = "1002";
+                for (var ad = 0; ad < docs3.length; ad++) {
+                  try {
+                    var anchors = docs3[ad].querySelectorAll('a[href], [onclick]');
+                    for (var ai = 0; ai < anchors.length; ai++) {
+                      var str = (anchors[ai].getAttribute('href') || '') + (anchors[ai].getAttribute('onclick') || '');
+                      var match = str.match(/pid=(\d+)/i);
+                      if (match && match[1]) {
+                        activePid = match[1];
+                        break;
+                      }
+                    }
+                  } catch(e) {}
+                  if (activePid !== "1002") break;
+                }
+                log("Menggunakan activePid: " + activePid);
+                navWin.openLink('getpage.gch?pid=' + activePid + '&nextpage=status_dev_pon_t.gch');
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_PON_CLICKED' }));
+              } else {
+                log("Fungsi openLink tidak ditemukan. Gagal menavigasi.");
+              }
+            } catch(e) {
+              log("Gagal melakukan navigasi langsung: " + e.message);
             }
-            if (typeof navWin.openLink === 'function') {
-              navWin.openLink('getpage.gch?pid=1002&nextpage=status_dev_pon_t.gch');
-              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_PON_CLICKED' }));
-            }
-          } catch(e) {}
-        }, 800);
+          }
+        }
 
+        setTimeout(tryClickPon, 500);
       })();
       true;
     `);
@@ -1351,57 +1894,145 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
         }
         
         function getAllDocs() {
-          var docs = [document];
-          try { for (var f = 0; f < window.frames.length; f++) { try { docs.push(window.frames[f].document); } catch(e) {} } } catch(e) {}
-          try { var ifs = document.querySelectorAll('iframe'); for (var fi = 0; fi < ifs.length; fi++) { try { if (ifs[fi].contentDocument) docs.push(ifs[fi].contentDocument); } catch(e) {} } } catch(e) {}
+          var docs = [];
+          function collect(win) {
+            try {
+              if (win.document && docs.indexOf(win.document) === -1) {
+                docs.push(win.document);
+              }
+            } catch(e) {}
+            try {
+              for (var i = 0; i < win.frames.length; i++) {
+                try {
+                  collect(win.frames[i]);
+                } catch(ex) {}
+              }
+            } catch(e) {}
+          }
+          collect(window);
           return docs;
         }
 
-        log("Mulai membaca data tabel status...");
-        var docsFinal = getAllDocs();
-        var diag = { rxPower:'', txPower:'', uptime:'', wanIp:'', firmware:'', temp:'', ponStatus:'' };
-        
-        for (var d = 0; d < docsFinal.length; d++) {
-          try {
-            var doc = docsFinal[d];
-            var rows = doc.querySelectorAll('tr');
-            for (var r = 0; r < rows.length; r++) {
-              var tds = rows[r].querySelectorAll('td');
-              if (tds.length >= 2) {
-                var label = (tds[0].textContent || tds[0].innerText || '').toLowerCase().trim();
-                var value = (tds[1].textContent || tds[1].innerText || '').trim();
+        var retries = 0;
+        var maxRetries = 15; // 15 detik batas waktu internal
 
-                if (
-                  ((label.indexOf('input') !== -1 && label.indexOf('power') !== -1) || 
-                   label.indexOf('rx') !== -1 || 
-                   label.indexOf('rxoptical') !== -1 || 
-                   label.indexOf('receiver') !== -1 || 
-                   label.indexOf('penerima') !== -1) && 
-                  !diag.rxPower
-                ) {
-                  diag.rxPower = value;
-                  log("Ditemukan daya RX: label='" + label + "' | nilai='" + value + "'");
+        function tryRead() {
+          log("Mencari data parameter optik (percobaan " + (retries + 1) + ")...");
+          var docsFinal = getAllDocs();
+          var diag = { rxPower:'', txPower:'', uptime:'', wanIp:'', firmware:'', temp:'', ponStatus:'' };
+          var rxFound = false;
+
+          for (var d = 0; d < docsFinal.length; d++) {
+            try {
+              var doc = docsFinal[d];
+
+              // Cara 1: Deteksi Elemen Form/Input Langsung Berdasarkan ID yang Umum pada ZTE
+              var rxEl = doc.getElementById('Frm_RxPower') || doc.getElementById('RxPower') || doc.getElementById('Frm_RxOpticalPower') || doc.getElementById('RxOpticalPower') || doc.getElementById('rx_power') || doc.getElementById('rxpower');
+              var txEl = doc.getElementById('Frm_TxPower') || doc.getElementById('TxPower') || doc.getElementById('Frm_TxOpticalPower') || doc.getElementById('TxOpticalPower') || doc.getElementById('tx_power') || doc.getElementById('txpower');
+              var tempEl = doc.getElementById('Frm_Temp') || doc.getElementById('Temp') || doc.getElementById('Frm_Temperature') || doc.getElementById('Temperature') || doc.getElementById('temp') || doc.getElementById('temperature');
+              var statusEl = doc.getElementById('Frm_GponState') || doc.getElementById('GponState') || doc.getElementById('Frm_PonStatus') || doc.getElementById('PonStatus') || doc.getElementById('gpon_state') || doc.getElementById('pon_status');
+
+              if (rxEl) {
+                diag.rxPower = rxEl.value || rxEl.textContent || rxEl.innerText || '';
+                if (diag.rxPower) rxFound = true;
+              }
+              if (txEl) {
+                diag.txPower = txEl.value || txEl.textContent || txEl.innerText || '';
+              }
+              if (tempEl) {
+                diag.temp = tempEl.value || tempEl.textContent || tempEl.innerText || '';
+              }
+              if (statusEl) {
+                diag.ponStatus = statusEl.value || statusEl.textContent || statusEl.innerText || '';
+              }
+
+              // Cara 2: Jika belum ketemu, cari di tabel (tr & td)
+              if (!rxFound) {
+                var rows = doc.querySelectorAll('tr');
+                for (var r = 0; r < rows.length; r++) {
+                  var tds = rows[r].querySelectorAll('td');
+                  if (tds.length >= 2) {
+                    var label = (tds[0].textContent || tds[0].innerText || '').toLowerCase().trim();
+                    
+                    // Baca nilai dari cell (bisa berupa teks langsung atau di dalam input)
+                    var cell = tds[1];
+                    var inputEl = cell.querySelector('input, select, textarea');
+                    var value = '';
+                    if (inputEl) {
+                      value = inputEl.value;
+                    } else {
+                      value = cell.textContent || cell.innerText || '';
+                    }
+                    value = value.trim();
+
+                    // Cek label
+                    if (
+                      (label.indexOf('input') !== -1 && label.indexOf('power') !== -1) || 
+                      label.indexOf('rx') !== -1 || 
+                      label.indexOf('rxoptical') !== -1 || 
+                      label.indexOf('receiver') !== -1 || 
+                      label.indexOf('penerima') !== -1 ||
+                      label.indexOf('redaman') !== -1
+                    ) {
+                      diag.rxPower = value;
+                      if (value) rxFound = true;
+                    } else if (
+                      (label.indexOf('output') !== -1 && label.indexOf('power') !== -1) || 
+                      label.indexOf('tx') !== -1 || 
+                      label.indexOf('txoptical') !== -1 || 
+                      label.indexOf('transmitter') !== -1 || 
+                      label.indexOf('pemancar') !== -1
+                    ) {
+                      diag.txPower = value;
+                    } else if (label.indexOf('temperature') !== -1 || label.indexOf('suhu') !== -1 || label.indexOf('temp') !== -1) {
+                      diag.temp = value;
+                    } else if (label.indexOf('gpon state') !== -1 || label.indexOf('pon status') !== -1 || label.indexOf('state') !== -1) {
+                      diag.ponStatus = value;
+                    }
+                  }
                 }
               }
+            } catch(e) {
+              log("Error membaca tabel status: " + e.message);
             }
-          } catch(e) {
-            log("Error membaca tabel status: " + e.message);
+          }
+
+          if (rxFound && diag.rxPower && diag.rxPower !== '') {
+            log("Pembacaan sukses! Hasil RxPower: " + diag.rxPower);
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_DATA_READ', diag: diag }));
+          } else {
+            retries++;
+            if (retries < maxRetries) {
+              setTimeout(tryRead, 1000);
+            } else {
+              log("Batas waktu habis. Mengirimkan data kosong/parsial.");
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_DATA_READ', diag: diag }));
+            }
           }
         }
-        
-        log("Pembacaan selesai. Hasil RxPower: " + (diag.rxPower || 'TIDAK DITEMUKAN'));
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DIAG_DATA_READ', diag: diag }));
+
+        tryRead();
       })();
       true;
     `);
   };
 
   const handleRefreshDiagnostics = () => {
+    webViewRef.current?.injectJavaScript(`
+      if (window.diagLoggerInterval) {
+        clearInterval(window.diagLoggerInterval);
+        window.diagLoggerInterval = null;
+      }
+      true;
+    `);
     setRealDiag(null);
     setDiagLogs([]);
     setDiagStep('status');
+    // Reset flag agar logger bisa berjalan kembali setelah refresh
+    diagDataFoundRef.current = false;
     navPhaseRef.current = 'diag_status';
     injectClickDiagStatus();
+    injectDiagLogger();
   };
 
   const handleWebViewMessage = (event: any) => {
@@ -1421,6 +2052,10 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
           navPhaseRef.current = 'devices';
           setTimeout(injectReadDevices, 2500);
           setTimeout(injectReadDevices, 4500);
+        } else if (activeMenu === 'reboot') {
+          navPhaseRef.current = 'reboot';
+          setTimeout(injectRebootPage, 2500);
+          setTimeout(injectRebootPage, 4500);
         } else {
           navPhaseRef.current = 'network';
           setStepNetwork('loading');
@@ -1462,15 +2097,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
           setSelectedSsid(data.selectedSsidIndex);
         }
       } else if (data.type === 'WLAN_SAVE_SUBMITTED') {
-        setSaveStatus('success');
-        Alert.alert(
-          'Berhasil Disimpan!',
-          'Perubahan Nama & Password WiFi telah dikirim ke modem. HP Anda mungkin akan terputus sebentar dari WiFi karena modem melakukan restart nirkabel. Silakan sambungkan kembali HP Anda ke WiFi baru.',
-          [{ text: 'OK', onPress: () => {
-            setShowWlanForm(false);
-            setActiveMenu('menu');
-          } }]
-        );
+        console.log('[WLAN] Form WiFi berhasil di-submit ke modem. Memulai hitung mundur nirkabel.');
       } else if (data.type === 'LOGIN_FAILED') {
         setAutomationError(`Gagal Login: ${data.error || 'Username atau password yang Anda masukkan salah.'}`);
         setStepLogin('idle');
@@ -1488,23 +2115,45 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
         setTimeout(injectReadDiagData, 1500);
       } else if (data.type === 'DIAG_DATA_READ') {
         // Data real diagnostik dari status page modem
+        diagDataFoundRef.current = true; // Tandai data sudah ditemukan, hentikan logger
         setRealDiag(data.diag);
         setDiagStep('done');
         navPhaseRef.current = 'done';
+        webViewRef.current?.injectJavaScript(`
+          if (window.diagLoggerInterval) {
+            clearInterval(window.diagLoggerInterval);
+            window.diagLoggerInterval = null;
+          }
+          true;
+        `);
       } else if (data.type === 'DIAG_LOG') {
         setDiagLogs(data.logs || []);
-        console.warn('--- DIAGNOSTICS LOGS ---');
-        (data.logs || []).forEach((l: string) => console.warn('[DIAG_LOG]', l));
-        console.warn('------------------------');
+        (data.logs || []).forEach((l: string) => console.log('[DIAG_LOG]', l));
       } else if (data.type === 'DEBUG_LINKS') {
         const frames = data.frameCount ?? 1;
         const links = (data.links as string[]);
-        console.warn('[MODEM NAV DEBUG]', data.stage, 'frames:', frames, links);
+        console.log('[MODEM NAV DEBUG]', data.stage, 'frames:', frames, links.length > 5 ? links.slice(0, 5).join(' | ') + '...' : links.join(' | '));
+      } else if (data.type === 'REBOOT_CLICKED_SUCCESS') {
+        console.log('[REBOOT]', `Perintah reboot sukses diklik di WebView! (${data.detail || ''})`);
+      } else if (data.type === 'DETECTED_LOGIN_PAGE') {
+        if (isWlanLoaded && saveStatus !== 'saving' && rebootStep !== 'rebooting') {
+          console.log('[SESSION] Halaman login terdeteksi kembali setelah sukses masuk. Mengembalikan ke dashboard (Session Timeout).');
+          setShowSessionTimeoutModal(true);
+        }
       }
     } catch (_) {}
   };
 
   const handleHeaderBack = () => {
+    if (activeMenu === 'status') {
+      webViewRef.current?.injectJavaScript(`
+        if (window.diagLoggerInterval) {
+          clearInterval(window.diagLoggerInterval);
+          window.diagLoggerInterval = null;
+        }
+        true;
+      `);
+    }
     if (showWebView) {
       if (canGoBack) {
         webViewRef.current?.goBack();
@@ -1535,15 +2184,15 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
   const StepRow = ({ status, label }: { status: StepStatus; label: string }) => (
     <View style={styles.stepRow}>
       <View style={styles.stepIcon}>
-        {status === 'loading' && <ActivityIndicator size="small" color="#06B6D4" />}
-        {status === 'done'    && <Text style={styles.stepCheck}>✓</Text>}
-        {status === 'idle'    && <View style={styles.stepDot} />}
+        {status === 'loading' ? <ActivityIndicator size="small" color="#06B6D4" /> : null}
+        {status === 'done' ? <Text style={styles.stepCheck}>✓</Text> : null}
+        {status === 'idle' ? <View style={styles.stepDot} /> : null}
       </View>
       <Text style={[
         styles.stepLabel,
-        status === 'done'    && styles.stepDone,
-        status === 'loading' && styles.stepActive,
-        status === 'idle'    && styles.stepIdle,
+        status === 'done' ? styles.stepDone : null,
+        status === 'loading' ? styles.stepActive : null,
+        status === 'idle' ? styles.stepIdle : null,
       ]}>{label}</Text>
     </View>
   );
@@ -1557,7 +2206,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
 
   const renderScreenHeader = (title: string, isMainMenu = false) => (
     <View style={[styles.formMainHeader, { alignItems: 'center', marginBottom: isMainMenu ? 20 : 12 }]}>
-      {isMainMenu && (
+      {isMainMenu ? (
         <View style={{ width: 80, height: 80, justifyContent: 'center', alignItems: 'center', marginBottom: 12 }}>
           {/* Ring 1: Outer Orbit */}
           <Animated.View style={{
@@ -1583,6 +2232,29 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
             transform: [{ rotate: spinCounterClockwise }]
           }} />
 
+          {/* Ring 3: Inactivity Timeout Radar Dot */}
+          <Animated.View style={{
+            position: 'absolute',
+            width: 74,
+            height: 74,
+            transform: [{ rotate: timeoutRotation }]
+          }}>
+            <View style={{
+              position: 'absolute',
+              top: -4,
+              left: 33,
+              width: 8,
+              height: 8,
+              borderRadius: 4,
+              backgroundColor: '#06B6D4',
+              shadowColor: '#06B6D4',
+              shadowOffset: { width: 0, height: 0 },
+              shadowOpacity: 0.9,
+              shadowRadius: 4,
+              elevation: 4,
+            }} />
+          </Animated.View>
+
           {/* Center WiFi Icon */}
           <Animated.View style={{
             transform: [{ scale: wifiScale }],
@@ -1592,14 +2264,14 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
             <Feather name="wifi" size={28} color="#06B6D4" />
           </Animated.View>
         </View>
-      )}
+      ) : null}
 
       {/* Judul Terpusat */}
       <Text style={[styles.formMainTitle, { color: colors.text, fontSize: isMainMenu ? 20 : 18, fontWeight: '900', textAlign: 'center', letterSpacing: -0.2 }]}>
         {title}
       </Text>
 
-      {isMainMenu && (
+      {isMainMenu ? (
         <>
           {/* Keterangan Deskripsi Terpusat */}
           <Text style={{ fontSize: 12, color: colors.subtext, marginTop: 6, fontWeight: '600', textAlign: 'center', paddingHorizontal: 16, lineHeight: 18 }}>
@@ -1622,7 +2294,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
             <Text style={{ fontSize: 9, fontWeight: '900', color: '#10B981', letterSpacing: 0.5 }}>TERHUBUNG</Text>
           </View>
         </>
-      )}
+      ) : null}
     </View>
   );
 
@@ -1630,6 +2302,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
     <KeyboardAvoidingView 
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      onTouchStart={resetInactivityTimer}
     >
       {/* Header Browser (hanya tampil jika showWebView aktif atau normal) */}
       <View style={[styles.browserHeader, { backgroundColor: colors.headerBg, borderColor: colors.headerBorder }]}>
@@ -1651,11 +2324,11 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
         ) : (
           <View style={styles.headerTitleContainer}>
             <Text style={[styles.headerTitle, { color: colors.text, fontWeight: '800', fontSize: 16 }]}>
-              {activeMenu === 'menu' && 'Dashboard'}
-              {activeMenu === 'wlan' && 'Pengaturan WiFi'}
-              {activeMenu === 'devices' && 'Perangkat Terhubung'}
-              {activeMenu === 'status' && 'Diagnostik Modem'}
-              {activeMenu === 'reboot' && 'Reboot Sistem'}
+              {activeMenu === 'menu' ? 'Dashboard' :
+               activeMenu === 'wlan' ? 'Pengaturan WiFi' :
+               activeMenu === 'devices' ? 'Perangkat Terhubung' :
+               activeMenu === 'status' ? 'Diagnostik Modem' :
+               activeMenu === 'reboot' ? 'Reboot Sistem' : ''}
             </Text>
           </View>
         )}
@@ -1671,19 +2344,19 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
           </TouchableOpacity>
           
           {/* Tombol toggle WebView — HANYA untuk mode Teknisi */}
-          {isTechMode && (
+          {isTechMode ? (
             <TouchableOpacity 
               style={[
                 styles.reloadButton, 
                 { backgroundColor: colors.buttonBg },
-                showWebView && styles.reloadButtonActive
+                showWebView ? styles.reloadButtonActive : null
               ]} 
               onPress={() => setShowWebView(!showWebView)} 
               activeOpacity={0.7}
             >
               <Feather name={showWebView ? 'eye' : 'eye-off'} size={15} color={colors.activeBlue} />
             </TouchableOpacity>
-          )}
+          ) : null}
         </View>
       </View>
 
@@ -1701,10 +2374,12 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
           injectedJavaScript={autoFillScript}
           onMessage={handleWebViewMessage}
           onError={(syntheticEvent) => {
+            if (rebootStep === 'rebooting') return;
             const { nativeEvent } = syntheticEvent;
             setAutomationError(`Gagal memuat portal modem. Error: ${nativeEvent.description || 'Tidak ada koneksi jaringan'}`);
           }}
           onHttpError={(syntheticEvent) => {
+            if (rebootStep === 'rebooting') return;
             const { nativeEvent } = syntheticEvent;
             if (nativeEvent.statusCode >= 400) {
               setAutomationError(`Server modem merespons dengan kode error HTTP ${nativeEvent.statusCode}`);
@@ -1719,8 +2394,20 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                 setTimeout(injectClickNetwork, 1200);
               } else if (navPhaseRef.current === 'wlan') {
                 setTimeout(injectClickWlan, 800);
+              } else if (navPhaseRef.current === 'diag_status') {
+                setTimeout(injectClickDiagStatus, 1200);
+              } else if (navPhaseRef.current === 'diag_netitf') {
+                setTimeout(injectClickDiagNetItf, 1200);
+              } else if (navPhaseRef.current === 'diag_read') {
+                setTimeout(injectReadDiagData, 1200);
+              } else if (navPhaseRef.current === 'devices') {
+                setTimeout(injectOnlyReadDevices, 1200);
+              } else if (navPhaseRef.current === 'reboot') {
+                setTimeout(injectClickRebootButton, 1200);
               }
-              if (activeMenu === 'status') {
+              // Hanya re-inject logger jika di menu status & data belum ditemukan
+              // Mencegah multiple interval berjalan bersamaan saat navigasi berulang
+              if (activeMenu === 'status' && !diagDataFoundRef.current) {
                 injectDiagLogger();
               }
             }
@@ -1736,7 +2423,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
       </View>
 
       {/* UI UTAMA PENGGUNA (Hanya tampil jika showWebView = false) */}
-      {!showWebView && (
+      {!showWebView ? (
         <View style={[styles.mainContentArea, { backgroundColor: colors.bg }]}>
           {automationError ? (
             /* 3. TAMPILAN FULLSCREEN NATIVE ERROR NOTIFICATION */
@@ -1794,7 +2481,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
             /* 2. TAMPILAN FULLSCREEN LAYOUT MENU / FORM NATIVE */
             <View style={{ flex: 1 }}>
               {/* 2.1 PANEL MENU DASHBOARD MODEM */}
-              {activeMenu === 'menu' && (
+              {activeMenu === 'menu' ? (
                 <ScrollView 
                   style={styles.fullscreenFormContainer}
                   showsVerticalScrollIndicator={false}
@@ -1829,7 +2516,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                               setActiveMenu('status');
                             } else if (menuItem.id === 'reboot') {
                               setActiveMenu('reboot');
-                              setRebootStep('warning');
+                              setRebootStep('idle');
                             }
                           }}
                           activeOpacity={0.7}
@@ -1856,132 +2543,225 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                     </TouchableOpacity>
                   </View>
                 </ScrollView>
-              )}
+              ) : null}
 
               {/* 2.2 PANEL FORM NATIVE PENGATURAN WIFI */}
-              {activeMenu === 'wlan' && (
+              {activeMenu === 'wlan' ? (
                 <ScrollView 
                   style={styles.fullscreenFormContainer}
                   keyboardShouldPersistTaps="handled"
                   showsVerticalScrollIndicator={false}
                 >
                   <View style={styles.formContentBox}>
-
-                    {/* WiFi Active Status Card */}
-                    <View style={[styles.cardInputGroup, { backgroundColor: colors.card, borderColor: colors.cardBorder, padding: 16, alignItems: 'center', marginBottom: 14 }]}>
-                      <Text style={{ fontSize: 12, color: colors.subtext, fontWeight: '700', letterSpacing: 0.5 }}>NAMA WIFI AKTIF SAAT INI</Text>
-                      <Text style={{ fontSize: 24, fontWeight: '900', color: '#06B6D4', marginTop: 4, textAlign: 'center' }}>
-                        {currentSsid ? `"${currentSsid}"` : 'Belum Dipindai'}
-                      </Text>
-                      <Text style={{ fontSize: 10, color: colors.subtext, marginTop: 6, textAlign: 'center', lineHeight: 14 }}>
-                        Jaringan nirkabel aktif pada frekuensi {activeBand === '2.4GHz' ? '2.4 GHz (WLAN1)' : '5 GHz (WLAN5)'}
-                      </Text>
-                    </View>
-
-                    <View style={[styles.cardInputGroup, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-                      <View style={styles.inputLabelHeader}>
-                        <Text style={[styles.inputLabel, { color: colors.text }]}>Nama WiFi Baru (SSID)</Text>
-                      </View>
-                      <TextInput
-                        style={[styles.formTextInput, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }]}
-                        value={newSsid}
-                        onChangeText={setNewSsid}
-                        placeholder="Masukkan nama WiFi baru"
-                        placeholderTextColor={isDark ? '#475569' : '#94A3B8'}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                      />
-                    </View>
-
-                    <View style={[styles.cardInputGroup, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-                      <View style={styles.inputLabelHeader}>
-                        <Text style={[styles.inputLabel, { color: colors.text }]}>Kata Sandi WiFi Baru</Text>
-                        <Text style={styles.inputSubLabel}>Minimal 8 karakter unik</Text>
-                      </View>
-                      <View style={styles.passwordInputWrapper}>
-                        <TextInput
-                          style={[styles.formTextInputWithIcon, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }]}
-                          value={newPassword}
-                          onChangeText={setNewPassword}
-                          placeholder="Masukkan kata sandi WiFi baru"
-                          placeholderTextColor={isDark ? '#475569' : '#94A3B8'}
-                          autoCapitalize="none"
-                          autoCorrect={false}
-                          secureTextEntry={securePassword}
-                        />
-                        <TouchableOpacity 
-                          style={styles.eyeButton} 
-                          onPress={() => setSecurePassword(!securePassword)}
-                          activeOpacity={0.7}
-                        >
-                          <Feather name={securePassword ? 'eye-off' : 'eye'} size={16} color={colors.subtext} />
-                        </TouchableOpacity>
-                      </View>
-                      
-                      {/* Password Strength Meter */}
-                      {newPassword.length > 0 && (
-                        <View style={styles.strengthWrapper}>
-                          <View style={styles.strengthBarContainer}>
-                            {[1, 2, 3, 4].map((step) => {
-                              const strength = getPasswordStrength(newPassword);
-                              const isActive = strength.score >= step;
-                              return (
-                                <View
-                                  key={step}
-                                  style={[
-                                    styles.strengthSegment,
-                                    { backgroundColor: isActive ? strength.color : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)') }
-                                  ]}
-                                />
-                              );
-                            })}
+                    {saveStatus === 'saving' ? (
+                      /* WLAN Saving Countdown Screen */
+                      <View style={{ alignItems: 'center', paddingVertical: 15 }}>
+                        <View style={[styles.cardInputGroup, { 
+                          backgroundColor: colors.card, 
+                          borderColor: colors.cardBorder, 
+                          padding: 24, 
+                          alignItems: 'center',
+                          width: '100%'
+                        }]}>
+                          {/* Beautiful Countdown Circle */}
+                          <View style={{ 
+                            width: 120, 
+                            height: 120, 
+                            borderRadius: 60, 
+                            backgroundColor: isDark ? 'rgba(6, 182, 212, 0.05)' : 'rgba(6, 182, 212, 0.08)',
+                            justifyContent: 'center', 
+                            alignItems: 'center', 
+                            marginBottom: 20,
+                            borderWidth: 2,
+                            borderColor: 'rgba(6, 182, 212, 0.15)',
+                            borderStyle: 'dashed'
+                          }}>
+                            <Text style={{ fontSize: 38, fontWeight: '900', color: '#06B6D4', includeFontPadding: false }}>
+                              {wlanCountdown}
+                            </Text>
+                            <Text style={{ fontSize: 9, color: colors.subtext, marginTop: 2, fontWeight: '800', letterSpacing: 0.5 }}>DETIK</Text>
                           </View>
-                          <Text style={[styles.strengthLabelText, { color: getPasswordStrength(newPassword).color }]}>
-                            Kekuatan Sandi: {getPasswordStrength(newPassword).label}
+
+                          <Text style={[styles.formMainTitle, { color: colors.text, textAlign: 'center', fontSize: 18, fontWeight: '900' }]}>
+                            Menerapkan Perubahan WiFi
+                          </Text>
+                          <Text style={{ fontSize: 11, color: colors.subtext, textAlign: 'center', marginTop: 4, fontWeight: '600' }}>
+                            Jangan menutup aplikasi atau mematikan modem
                           </Text>
                         </View>
-                      )}
-                    </View>
 
-                    {saveStatus === 'saving' ? (
-                      <View style={styles.nativeSavingContainer}>
-                        <ActivityIndicator size="small" color="#06B6D4" style={{ marginRight: 10 }} />
-                        <Text style={styles.nativeSavingText}>Menerapkan perubahan ke modem...</Text>
+                        {/* Progress steps changing over time */}
+                        <View style={[styles.cardInputGroup, { 
+                          backgroundColor: colors.card, 
+                          borderColor: colors.cardBorder, 
+                          padding: 16, 
+                          marginTop: 14, 
+                          width: '100%' 
+                        }]}>
+                          {[
+                            { text: 'Mengirimkan nama (SSID) & sandi baru ke modem', minSec: 50 },
+                            { text: 'Modem merestart modul nirkabel (wireless driver)', minSec: 30 },
+                            { text: 'Menunggu pemulihan sinyal WiFi nirkabel', minSec: 10 },
+                            { text: 'Menyelesaikan konfigurasi dan menyimpan perubahan', minSec: 0 }
+                          ].map((step, idx, arr) => {
+                            const isDone = wlanCountdown < step.minSec;
+                            const isActive = wlanCountdown >= step.minSec && (idx === 0 || wlanCountdown < arr[idx-1].minSec);
+                            return (
+                              <View 
+                                key={idx} 
+                                style={{ 
+                                  flexDirection: 'row', 
+                                  alignItems: 'center', 
+                                  paddingVertical: 12, 
+                                  borderBottomWidth: idx === 3 ? 0 : 1, 
+                                  borderColor: colors.cardBorder 
+                                }}
+                              >
+                                <View style={{ marginRight: 12 }}>
+                                  {isDone ? (
+                                    <Feather name="check-circle" size={16} color="#10B981" />
+                                  ) : isActive ? (
+                                    <ActivityIndicator size="small" color="#06B6D4" />
+                                  ) : (
+                                    <View style={{ 
+                                      width: 16, 
+                                      height: 16, 
+                                      borderRadius: 8, 
+                                      borderWidth: 1.5, 
+                                      borderColor: colors.cardBorder,
+                                      backgroundColor: colors.inputBg 
+                                    }} />
+                                  )}
+                                </View>
+                                <Text style={{ 
+                                  fontSize: 12, 
+                                  fontWeight: '600', 
+                                  color: isDone ? '#10B981' : isActive ? colors.text : colors.subtext, 
+                                  flex: 1 
+                                }}>
+                                  {step.text}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                        </View>
                       </View>
                     ) : (
-                      <TouchableOpacity 
-                        style={styles.nativeSaveButton}
-                        onPress={() => {
-                          if (!newSsid.trim()) {
-                            Alert.alert('Gagal', 'Nama WiFi tidak boleh kosong.');
-                            return;
-                          }
-                          if (newPassword.length < 8) {
-                            Alert.alert('Gagal', 'Kata Sandi WiFi harus minimal 8 karakter.');
-                            return;
-                          }
-                          
-                          // Tampilkan modal peringatan kustom
-                          setShowConfirmModal(true);
-                        }}
-                        activeOpacity={0.8}
-                      >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                          <Feather name="save" size={15} color="#FFF" style={{ marginRight: 8 }} />
-                          <Text style={[styles.nativeSaveButtonText, { color: '#FFF' }]}>Simpan & Terapkan Perubahan</Text>
+                      <>
+                        {/* WiFi Active Status Card */}
+                        <View style={[styles.cardInputGroup, { backgroundColor: colors.card, borderColor: colors.cardBorder, padding: 16, alignItems: 'center', marginBottom: 14 }]}>
+                          <Text style={{ fontSize: 12, color: colors.subtext, fontWeight: '700', letterSpacing: 0.5 }}>NAMA WIFI AKTIF SAAT INI</Text>
+                          <Text style={{ fontSize: 24, fontWeight: '900', color: '#06B6D4', marginTop: 4, textAlign: 'center' }}>
+                            {currentSsid ? `"${currentSsid}"` : 'Belum Dipindai'}
+                          </Text>
+                          <Text style={{ fontSize: 10, color: colors.subtext, marginTop: 6, textAlign: 'center', lineHeight: 14 }}>
+                            Jaringan nirkabel aktif pada frekuensi {activeBand === '2.4GHz' ? '2.4 GHz (WLAN1)' : '5 GHz (WLAN5)'}
+                          </Text>
                         </View>
-                      </TouchableOpacity>
-                    )}
 
-                    <Text style={[styles.formNote, { color: colors.noteText, backgroundColor: colors.noteBg, borderColor: colors.noteBorder }]}>
-                      PENTING: Setelah menekan tombol simpan, koneksi WiFi HP Anda akan terputus karena modem merestart jaringan nirkabel. Silakan hubungkan kembali HP Anda dengan nama/kata sandi WiFi yang baru.
-                    </Text>
+                        <View style={[styles.cardInputGroup, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                          <View style={styles.inputLabelHeader}>
+                            <Text style={[styles.inputLabel, { color: colors.text }]}>Nama WiFi Baru (SSID)</Text>
+                          </View>
+                          <TextInput
+                            style={[styles.formTextInput, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }]}
+                            value={newSsid}
+                            onChangeText={setNewSsid}
+                            placeholder="Masukkan nama WiFi baru"
+                            placeholderTextColor={isDark ? '#475569' : '#94A3B8'}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                          />
+                        </View>
+
+                        <View style={[styles.cardInputGroup, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                          <View style={styles.inputLabelHeader}>
+                            <Text style={[styles.inputLabel, { color: colors.text }]}>Kata Sandi WiFi Baru</Text>
+                            <Text style={styles.inputSubLabel}>Minimal 8 karakter unik</Text>
+                          </View>
+                          <View style={styles.passwordInputWrapper}>
+                            <TextInput
+                              style={[styles.formTextInputWithIcon, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }]}
+                              value={newPassword}
+                              onChangeText={setNewPassword}
+                              placeholder="Masukkan kata sandi WiFi baru"
+                              placeholderTextColor={isDark ? '#475569' : '#94A3B8'}
+                              autoCapitalize="none"
+                              autoCorrect={false}
+                              secureTextEntry={securePassword}
+                            />
+                            <TouchableOpacity 
+                              style={styles.eyeButton} 
+                              onPress={() => setSecurePassword(!securePassword)}
+                              activeOpacity={0.7}
+                            >
+                              <Feather name={securePassword ? 'eye-off' : 'eye'} size={16} color={colors.subtext} />
+                            </TouchableOpacity>
+                          </View>
+                          
+                          {/* Password Strength Meter */}
+                          {newPassword.length > 0 ? (
+                            <View style={styles.strengthWrapper}>
+                              <View style={styles.strengthBarContainer}>
+                                {[1, 2, 3, 4].map((step) => {
+                                  const strength = getPasswordStrength(newPassword);
+                                  const isActive = strength.score >= step;
+                                  return (
+                                    <View
+                                      key={step}
+                                      style={[
+                                        styles.strengthSegment,
+                                        { backgroundColor: isActive ? strength.color : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)') }
+                                      ]}
+                                    />
+                                  );
+                                })}
+                              </View>
+                              <Text style={[styles.strengthLabelText, { color: getPasswordStrength(newPassword).color }]}>
+                                Kekuatan Sandi: {getPasswordStrength(newPassword).label}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+
+                        <TouchableOpacity 
+                          style={[
+                            styles.nativeSaveButton,
+                            !isWlanFormValid && { backgroundColor: isDark ? '#334155' : '#CBD5E1', shadowColor: 'transparent', elevation: 0 }
+                          ]}
+                          disabled={!isWlanFormValid}
+                          onPress={() => {
+                            if (!newSsid.trim()) {
+                              Alert.alert('Gagal', 'Nama WiFi tidak boleh kosong.');
+                              return;
+                            }
+                            if (newPassword.length < 8) {
+                              Alert.alert('Gagal', 'Kata Sandi WiFi harus minimal 8 karakter.');
+                              return;
+                            }
+                            
+                            // Tampilkan modal peringatan kustom
+                            setShowConfirmModal(true);
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                            <Feather name="save" size={15} color="#FFF" style={{ marginRight: 8 }} />
+                            <Text style={[styles.nativeSaveButtonText, { color: '#FFF' }]}>Simpan & Terapkan Perubahan</Text>
+                          </View>
+                        </TouchableOpacity>
+
+                        <Text style={[styles.formNote, { color: colors.noteText, backgroundColor: colors.noteBg, borderColor: colors.noteBorder }]}>
+                          PENTING: Setelah menekan tombol simpan, koneksi WiFi HP Anda akan terputus karena modem merestart jaringan nirkabel. Silakan hubungkan kembali HP Anda dengan nama/kata sandi WiFi yang baru.
+                        </Text>
+                      </>
+                    )}
                   </View>
                 </ScrollView>
-              )}
+              ) : null}
 
               {/* 2.3 PANEL DAFTAR PERANGKAT TERHUBUNG */}
-              {activeMenu === 'devices' && (
+              {activeMenu === 'devices' ? (
                 <ScrollView 
                   style={styles.fullscreenFormContainer}
                   showsVerticalScrollIndicator={false}
@@ -1999,9 +2779,44 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                     {/* Device List */}
                     {isScanningDevices ? (
                       <View style={{ paddingVertical: 32, alignItems: 'center' }}>
-                        <ActivityIndicator size="large" color="#10B981" style={{ marginBottom: 12 }} />
-                        <Text style={{ fontSize: 14, color: colors.text, fontWeight: '700' }}>Memindai Jaringan Modem...</Text>
-                        <Text style={{ fontSize: 11, color: colors.subtext, marginTop: 4 }}>Navigasi ke DHCP lease table F663V3A...</Text>
+                        <ActivityIndicator size="large" color={scanDevicesTimeout ? "#EF4444" : "#10B981"} style={{ marginBottom: 12 }} />
+                        <Text style={{ fontSize: 14, color: colors.text, fontWeight: '700', textAlign: 'center' }}>
+                          {scanDevicesTimeout ? 'Koneksi Terlalu Lambat' : 'Memindai Jaringan Modem...'}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: colors.subtext, marginTop: 6, textAlign: 'center', paddingHorizontal: 20, lineHeight: 16 }}>
+                          {scanDevicesTimeout 
+                            ? 'Pemindaian memakan waktu lebih lama dari biasanya. Pastikan HP Anda terhubung ke WiFi modem.'
+                            : 'Membaca daftar client dari tabel DHCP lease modem...'}
+                        </Text>
+
+                        {scanDevicesTimeout ? (
+                          <TouchableOpacity
+                            style={[
+                              styles.nativeSaveButton, 
+                              { 
+                                backgroundColor: '#EF4444', 
+                                shadowColor: '#EF4444', 
+                                shadowOffset: { width: 0, height: 4 },
+                                shadowOpacity: 0.3,
+                                shadowRadius: 6,
+                                elevation: 4,
+                                borderWidth: 0,
+                                marginTop: 20,
+                                width: '80%'
+                              }
+                            ]}
+                            onPress={() => {
+                              setScanDevicesTimeout(false);
+                              injectReadDevices();
+                            }}
+                            activeOpacity={0.85}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                              <Feather name="refresh-cw" size={15} color="#FFF" style={{ marginRight: 8 }} />
+                              <Text style={[styles.nativeSaveButtonText, { color: '#FFF' }]}>Coba Lagi / Segarkan</Text>
+                            </View>
+                          </TouchableOpacity>
+                        ) : null}
                       </View>
                     ) : (
                       <View>
@@ -2074,241 +2889,301 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                     )}
                   </View>
                 </ScrollView>
-              )}
+              ) : null}
 
               {/* 2.4 PANEL STATUS DIAGNOSTIK MODEM */}
-              {activeMenu === 'status' && (
-                <ScrollView 
-                  style={styles.fullscreenFormContainer}
-                  showsVerticalScrollIndicator={false}
-                  onLayout={() => {
-                    if (!realDiag) {
-                      setRealDiag(null);
-                      setDiagLogs([]);
-                      navPhaseRef.current = 'diag_status';
-                      injectClickDiagStatus();
-                    }
-                  }}
-                >
-                  <View style={styles.formContentBox}>
+              {activeMenu === 'status' && (() => {
+                const rxNum = parseRxPower(realDiag?.rxPower);
+                const rating = getRxPowerRating(rxNum);
 
-                    {/* Optical Power Gauge Card */}
-                    <View style={[styles.cardInputGroup, { backgroundColor: colors.card, borderColor: colors.cardBorder, padding: 16, marginBottom: 14 }]}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ fontSize: 12, color: colors.subtext, fontWeight: '700' }}>DAYA OPTIK PENERIMA (RX)</Text>
-                        <View style={{ backgroundColor: realDiag ? 'rgba(16, 189, 129, 0.15)' : 'rgba(6, 182, 212, 0.15)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 }}>
-                          <Text style={{ fontSize: 10, fontWeight: '800', color: realDiag ? '#10B981' : '#06B6D4' }}>
-                            {realDiag ? 'LIVE' : 'MENUNGGU'}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text style={{ fontSize: 32, fontWeight: '900', color: '#10B981', marginTop: 6 }}>
-                        {realDiag?.rxPower || '-- dBm'}
-                      </Text>
-                      <View style={{ height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.06)', marginTop: 12, overflow: 'hidden', flexDirection: 'row' }}>
-                        <View style={{ flex: 3, backgroundColor: '#EF4444' }} />
-                        <View style={{ flex: 4, backgroundColor: '#F59E0B' }} />
-                        <View style={{ flex: 6, backgroundColor: '#10B981' }} />
-                        <View style={{ flex: 2, backgroundColor: '#EF4444' }} />
-                      </View>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
-                        <Text style={{ fontSize: 9, color: colors.subtext }}>-30 dBm (Lemah)</Text>
-                        <Text style={{ fontSize: 9, color: '#10B981', fontWeight: '800' }}>-15 s/d -25 dBm (Bagus)</Text>
-                        <Text style={{ fontSize: 9, color: colors.subtext }}>-8 dBm (Terlalu Kuat)</Text>
-                      </View>
+
+                return (
+                  <ScrollView 
+                    style={styles.fullscreenFormContainer}
+                    showsVerticalScrollIndicator={false}
+                  >
+                    <View style={styles.formContentBox}>
                       
-                      {!realDiag && diagStep !== 'idle' && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 14, backgroundColor: colors.savingBg, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: colors.savingBorder }}>
-                          <ActivityIndicator size="small" color="#06B6D4" style={{ marginRight: 8 }} />
-                          <Text style={{ fontSize: 11, color: colors.text, fontWeight: '600' }}>
-                            {diagStep === 'status' && 'Langkah 1/3: Membuka menu Status...'}
-                            {diagStep === 'netitf' && 'Langkah 2/3: Masuk ke Network Interface...'}
-                            {diagStep === 'read' && 'Langkah 3/3: Membaca parameter optik...'}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-
-                    {/* Detail Informasi Parameter Optik */}
-                    {realDiag && (
-                      <View style={[styles.cardInputGroup, { backgroundColor: colors.card, borderColor: colors.cardBorder, padding: 16, marginBottom: 14 }]}>
-                        <Text style={{ fontSize: 12, color: colors.subtext, fontWeight: '700', marginBottom: 12 }}>INFORMASI PARAMETER OPTIK</Text>
-                        
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.divider }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Feather name="upload-cloud" size={16} color="#06B6D4" style={{ marginRight: 10 }} />
-                            <Text style={{ fontSize: 13, color: colors.text, fontWeight: '500' }}>Daya Optik Pemancar (TX)</Text>
-                          </View>
-                          <Text style={{ fontSize: 13, color: colors.text, fontWeight: '700' }}>{realDiag.txPower || '--'}</Text>
-                        </View>
-
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.divider }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Feather name="thermometer" size={16} color="#EF4444" style={{ marginRight: 10 }} />
-                            <Text style={{ fontSize: 13, color: colors.text, fontWeight: '500' }}>Suhu Modul Optik</Text>
-                          </View>
-                          <Text style={{ fontSize: 13, color: colors.text, fontWeight: '700' }}>{realDiag.temp || '--'}</Text>
-                        </View>
-
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Feather name="activity" size={16} color="#10B981" style={{ marginRight: 10 }} />
-                            <Text style={{ fontSize: 13, color: colors.text, fontWeight: '500' }}>Status GPON</Text>
-                          </View>
-                          <Text style={{ fontSize: 13, color: '#10B981', fontWeight: '700' }}>{realDiag.ponStatus || '--'}</Text>
-                        </View>
-                      </View>
-                    )}
- 
-                    {/* Scan / Refresh Button */}
-                    <TouchableOpacity
-                      style={[
-                        styles.nativeSaveButton, 
-                        { 
-                          backgroundColor: '#10B981', 
-                          shadowColor: '#10B981', 
-                          shadowOffset: { width: 0, height: 4 },
-                          shadowOpacity: 0.3,
-                          shadowRadius: 6,
-                          elevation: 4,
-                          borderWidth: 0,
-                          marginTop: 10
-                        }
-                      ]}
-                      onPress={handleRefreshDiagnostics}
-                      activeOpacity={0.85}
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                        <Feather name="refresh-cw" size={15} color="#FFF" style={{ marginRight: 8 }} />
-                        <Text style={[styles.nativeSaveButtonText, { color: '#FFF' }]}>
-                          Segarkan Diagnostik
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-
-                    {/* Debug Logs Box for Tech Mode */}
-                    {isTechMode && diagLogs.length > 0 && (
-                      <View style={{ backgroundColor: 'rgba(0,0,0,0.85)', padding: 12, borderRadius: 8, marginTop: 14, borderWidth: 1, borderColor: 'rgba(16,189,129,0.3)' }}>
-                        <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#10B981', marginBottom: 6, letterSpacing: 0.5 }}>LOG NAVIGASI DIAGNOSTIK:</Text>
-                        <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled={true}>
-                          {diagLogs.map((log, idx) => (
-                            <Text key={idx} style={{ fontSize: 9, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', color: '#A7F3D0', marginBottom: 2 }}>
-                              &gt; {log}
-                            </Text>
-                          ))}
-                        </ScrollView>
-                      </View>
-                    )}
-                  </View>
-                </ScrollView>
-              )}
-
-              {/* 2.5 PANEL REBOOT SISTEM MODEM */}
-              {activeMenu === 'reboot' && (
-                <ScrollView 
-                  style={styles.fullscreenFormContainer}
-                  showsVerticalScrollIndicator={false}
-                >
-                  <View style={styles.formContentBox}>
-                    {rebootStep === 'warning' ? (
-                      <View style={{ alignItems: 'center', paddingVertical: 10 }}>
-                        {/* Elegant Card Container for Warning Info */}
-                        <View style={[styles.cardInputGroup, { 
-                          backgroundColor: colors.card, 
-                          borderColor: colors.cardBorder, 
-                          padding: 24, 
+                      {/* CASE 1: Welcome / Idle State */}
+                      {!realDiag && diagStep === 'idle' ? (
+                        <View style={{
+                          backgroundColor: colors.card,
+                          borderColor: colors.cardBorder,
+                          borderWidth: 1,
+                          borderRadius: 20,
+                          padding: 24,
                           alignItems: 'center',
-                          width: '100%',
-                          marginBottom: 20
-                        }]}>
-                          {/* Glowing Power icon */}
-                          <View style={{ 
-                            width: 72, 
-                            height: 72, 
-                            borderRadius: 36, 
-                            backgroundColor: 'rgba(239, 68, 68, 0.1)', 
-                            justifyContent: 'center', 
-                            alignItems: 'center', 
-                            marginBottom: 16, 
-                            borderWidth: 1.5, 
-                            borderColor: 'rgba(239, 68, 68, 0.3)' 
-                          }}>
-                            <Feather name="power" size={32} color="#EF4444" />
+                          justifyContent: 'center',
+                          marginBottom: 16,
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 4 },
+                          shadowOpacity: 0.05,
+                          shadowRadius: 10,
+                          elevation: 2
+                        }}>
+                          <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(6,182,212,0.1)', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                            <Feather name="activity" size={28} color="#06B6D4" />
                           </View>
-
-                          <Text style={[styles.formMainTitle, { color: colors.text, textAlign: 'center', fontSize: 18, fontWeight: '900' }]}>
-                            Mulai Ulang Modem?
+                          <Text style={{ fontSize: 16, fontWeight: '900', color: colors.text, marginBottom: 8, textAlign: 'center' }}>
+                            Mulai Diagnosis Modem
                           </Text>
-                          <Text style={{ fontSize: 12, color: colors.subtext, textAlign: 'center', marginTop: 6, lineHeight: 18, paddingHorizontal: 12 }}>
-                            Tindakan ini akan me-reboot router secara langsung dari HP Anda.
+                          <Text style={{ fontSize: 11, color: colors.subtext, textAlign: 'center', lineHeight: 16, paddingHorizontal: 10, marginBottom: 4 }}>
+                            Sistem akan memindai status redaman optik (RX) dan suhu modul modem Anda secara otomatis.
                           </Text>
+                        </View>
+                      ) : null}
 
-                          {/* Nested Warning Notice box */}
-                          <View style={{ 
-                            backgroundColor: isDark ? 'rgba(245, 158, 11, 0.06)' : 'rgba(245, 158, 11, 0.08)', 
-                            borderColor: isDark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.2)', 
-                            borderWidth: 1, 
-                            borderRadius: 10,
-                            padding: 14, 
-                            marginTop: 18, 
-                            flexDirection: 'row', 
-                            alignItems: 'flex-start' 
-                          }}>
-                            <Feather name="alert-triangle" size={16} color="#F59E0B" style={{ marginRight: 10, marginTop: 1 }} />
-                            <View style={{ flex: 1 }}>
-                              <Text style={{ fontSize: 12, fontWeight: '800', color: isDark ? '#F59E0B' : '#D97706' }}>Perhatian Penting</Text>
-                              <Text style={{ fontSize: 11, color: colors.subtext, marginTop: 4, lineHeight: 16 }}>
-                                Koneksi internet dan jaringan WiFi akan terputus total selama proses reboot (sekitar 60-90 detik). Harap tunggu sampai lampu modem menyala normal kembali.
+                      {/* CASE 2: Scanning / Loading State */}
+                      {!realDiag && diagStep !== 'idle' ? (
+                        <View style={{
+                          backgroundColor: colors.card,
+                          borderColor: colors.cardBorder,
+                          borderWidth: 1,
+                          borderRadius: 20,
+                          padding: 20,
+                          marginBottom: 16,
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 4 },
+                          shadowOpacity: 0.05,
+                          shadowRadius: 10,
+                          elevation: 2
+                        }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+                            <ActivityIndicator size="small" color="#06B6D4" style={{ marginRight: 10 }} />
+                            <Text style={{ fontSize: 13, fontWeight: '800', color: colors.text, letterSpacing: 0.5 }}>MEMINDAI DIAGNOSTIK MODEM...</Text>
+                          </View>
+                          
+                          <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)', padding: 16, borderRadius: 14, borderWidth: 1, borderColor: colors.divider || 'rgba(255,255,255,0.06)' }}>
+                            {/* Step 1 */}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                              <View style={{ 
+                                width: 22, 
+                                height: 22, 
+                                borderRadius: 11, 
+                                backgroundColor: diagStep === 'status' ? 'rgba(6,182,212,0.2)' : (diagStep === 'netitf' || diagStep === 'read' || diagStep === 'done' ? '#10B981' : 'rgba(100,116,139,0.1)'), 
+                                justifyContent: 'center', 
+                                alignItems: 'center', 
+                                marginRight: 12 
+                              }}>
+                                {diagStep === 'netitf' || diagStep === 'read' || diagStep === 'done' ? (
+                                  <Feather name="check" size={12} color="#FFF" />
+                                ) : (
+                                  <ActivityIndicator size="small" color="#06B6D4" />
+                                )}
+                              </View>
+                              <Text style={{ fontSize: 12, fontWeight: (diagStep === 'status' ? '700' : '400') as any, color: diagStep === 'status' ? colors.text : colors.subtext }}>
+                                {'Menghubungkan ke Menu Status'}
+                              </Text>
+                            </View>
+
+                            {/* Step 2 */}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                              <View style={{ 
+                                width: 22, 
+                                height: 22, 
+                                borderRadius: 11, 
+                                backgroundColor: diagStep === 'netitf' ? 'rgba(6,182,212,0.2)' : (diagStep === 'read' || diagStep === 'done' ? '#10B981' : 'rgba(100,116,139,0.1)'), 
+                                justifyContent: 'center', 
+                                alignItems: 'center', 
+                                marginRight: 12 
+                              }}>
+                                {diagStep === 'read' || diagStep === 'done' ? (
+                                  <Feather name="check" size={12} color="#FFF" />
+                                ) : (
+                                  diagStep === 'netitf' ? (
+                                    <ActivityIndicator size="small" color="#06B6D4" />
+                                  ) : (
+                                    <Text style={{ fontSize: 10, fontWeight: '700', color: colors.subtext }}>2</Text>
+                                  )
+                                )}
+                              </View>
+                              <Text style={{ fontSize: 12, fontWeight: (diagStep === 'netitf' ? '700' : '400') as any, color: diagStep === 'netitf' ? colors.text : colors.subtext }}>
+                                {'Menavigasi ke Network Interface'}
+                              </Text>
+                            </View>
+
+                            {/* Step 3 */}
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <View style={{ 
+                                width: 22, 
+                                height: 22, 
+                                borderRadius: 11, 
+                                backgroundColor: diagStep === 'read' ? 'rgba(6,182,212,0.2)' : (diagStep === 'done' ? '#10B981' : 'rgba(100,116,139,0.1)'), 
+                                justifyContent: 'center', 
+                                alignItems: 'center', 
+                                marginRight: 12 
+                              }}>
+                                {diagStep === 'done' ? (
+                                  <Feather name="check" size={12} color="#FFF" />
+                                ) : (
+                                  diagStep === 'read' ? (
+                                    <ActivityIndicator size="small" color="#06B6D4" />
+                                  ) : (
+                                    <Text style={{ fontSize: 10, fontWeight: '700', color: colors.subtext }}>3</Text>
+                                  )
+                                )}
+                              </View>
+                              <Text style={{ fontSize: 12, fontWeight: (diagStep === 'read' ? '700' : '400') as any, color: diagStep === 'read' ? colors.text : colors.subtext }}>
+                                {'Membaca Redaman Optik'}
                               </Text>
                             </View>
                           </View>
                         </View>
+                      ) : null}
 
-                        {/* Action buttons (Row Layout) */}
-                        <View style={{ flexDirection: 'row', width: '100%', gap: 12 }}>
-                          <TouchableOpacity
-                            style={{
-                              flex: 1,
-                              height: 46,
-                              borderRadius: 10,
-                              backgroundColor: colors.buttonBg,
-                              borderWidth: 1,
-                              borderColor: colors.inputBorder,
-                              justifyContent: 'center',
-                              alignItems: 'center',
-                            }}
-                            onPress={() => setActiveMenu('menu')}
-                            activeOpacity={0.8}
-                          >
-                            <Text style={{ fontSize: 13, fontWeight: '800', color: colors.subtext }}>
-                              Batalkan
-                            </Text>
-                          </TouchableOpacity>
+                      {/* CASE 3: Diagnosis Loaded State */}
+                      {realDiag ? (
+                        <View style={{
+                          backgroundColor: colors.card,
+                          borderColor: colors.cardBorder,
+                          borderWidth: 1,
+                          borderRadius: 20,
+                          padding: 18,
+                          marginBottom: 16,
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 4 },
+                          shadowOpacity: 0.1,
+                          shadowRadius: 12,
+                          elevation: 3
+                        }}>
+                          {/* Header Laporan */}
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderColor: colors.divider || 'rgba(255,255,255,0.06)', paddingBottom: 12, marginBottom: 16 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <Feather name="shield" size={16} color={rating.color} style={{ marginRight: 8 }} />
+                              <Text style={{ fontSize: 13, fontWeight: '800', color: colors.text, letterSpacing: 0.5 }}>STATUS DIAGNOSIS</Text>
+                            </View>
+                            <View style={{ backgroundColor: rating.bg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }}>
+                              <Text style={{ fontSize: 9, fontWeight: '900', color: rating.color }}>
+                                {rating.text.toUpperCase()}
+                              </Text>
+                            </View>
+                          </View>
 
-                          <TouchableOpacity
-                            style={{
-                              flex: 1,
-                              height: 46,
-                              borderRadius: 10,
-                              backgroundColor: '#EF4444',
-                              shadowColor: '#EF4444',
-                              shadowOffset: { width: 0, height: 4 },
-                              shadowOpacity: 0.3,
-                              shadowRadius: 6,
-                              elevation: 4,
-                              justifyContent: 'center',
-                              alignItems: 'center',
-                            }}
-                            onPress={handleInjectReboot}
-                            activeOpacity={0.8}
-                          >
-                            <Text style={{ fontSize: 13, fontWeight: '900', color: '#FFF' }}>
-                              Ya, Reboot
-                            </Text>
-                          </TouchableOpacity>
+                          {/* Grid Dashboard */}
+                          <View style={{ flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                            {/* Panel 1: Redaman RX */}
+                            <View style={{ width: '100%', backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)', borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 16, padding: 14, alignItems: 'center' }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 6 }}>
+                                <Feather name="activity" size={12} color="#06B6D4" style={{ marginRight: 6 }} />
+                                <Text style={{ fontSize: 9, fontWeight: '800', color: colors.subtext, letterSpacing: 0.5 }}>REDAMAN OPTIK</Text>
+                              </View>
+                              <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', marginTop: 4 }}>
+                                <Text style={{ fontSize: 24, fontWeight: '900', color: rating.color }}>
+                                  {rxNum || '--'}
+                                </Text>
+                                {rxNum !== null ? (
+                                  <Text style={{ fontSize: 12, fontWeight: '700', color: colors.subtext, marginLeft: 2 }}>dBm</Text>
+                                ) : null}
+                              </View>
+                              <Text style={{ fontSize: 9, color: colors.subtext, marginTop: 6, textAlign: 'center' }}>Batas ideal: -7 dBm sampai -26 dBm</Text>
+                            </View>
+
+                            {/* Panel 2: Suhu Modul */}
+                            {(() => {
+                              const tempNum = parseFloat(realDiag.temp) || 0;
+                              return (
+                                <View style={{ width: '100%', backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)', borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 16, padding: 14, alignItems: 'center' }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 6 }}>
+                                    <Feather name="thermometer" size={12} color="#EF4444" style={{ marginRight: 6 }} />
+                                    <Text style={{ fontSize: 9, fontWeight: '800', color: colors.subtext, letterSpacing: 0.5 }}>SUHU MODUL</Text>
+                                  </View>
+                                  <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', marginTop: 4 }}>
+                                    <Text style={{ fontSize: 24, fontWeight: '900', color: colors.text }}>
+                                      {realDiag.temp ? (realDiag.temp.includes('°C') ? realDiag.temp : `${realDiag.temp}°C`) : '--'}
+                                    </Text>
+                                  </View>
+                                  <Text style={{ fontSize: 9, color: colors.subtext, marginTop: 6, textAlign: 'center' }}>Batas aman: &lt; 70°C</Text>
+                                </View>
+                              );
+                            })()}
+                          </View>
+
+                          {/* Kesimpulan Ringkas Banner */}
+                          {(() => {
+                            let bannerText = "Koneksi serat optik Anda saat ini dalam kondisi prima dan sangat stabil.";
+                            let bannerColor = '#10B981';
+                            let bannerBg = 'rgba(16, 189, 129, 0.08)';
+                            let bannerIcon = 'check-circle';
+
+                            if (rxNum !== null) {
+                              if (rxNum <= -29) {
+                                bannerText = "Sinyal sangat lemah & kritis! Harap periksa kabel serat optik atau hubungi operator.";
+                                bannerColor = '#EF4444';
+                                bannerBg = 'rgba(239, 68, 68, 0.08)';
+                                bannerIcon = 'alert-octagon';
+                              } else if (rxNum <= -26) {
+                                bannerText = "Redaman kurang ideal. Kemungkinan kabel serat optik ditekuk terlalu tajam.";
+                                bannerColor = '#F59E0B';
+                                bannerBg = 'rgba(245, 158, 11, 0.08)';
+                                bannerIcon = 'alert-triangle';
+                              } else if (rxNum > -5) {
+                                bannerText = "Sinyal terlalu kuat (Overload). Ini dapat merusak komponen receiver modem.";
+                                bannerColor = '#EF4444';
+                                bannerBg = 'rgba(239, 68, 68, 0.08)';
+                                bannerIcon = 'alert-circle';
+                              }
+                            }
+
+                            return (
+                              <View style={{ 
+                                flexDirection: 'row', 
+                                alignItems: 'center', 
+                                backgroundColor: bannerBg, 
+                                borderWidth: 1, 
+                                borderColor: `${bannerColor}20`, 
+                                borderRadius: 12, 
+                                padding: 12 
+                              }}>
+                                <Feather name={bannerIcon as any} size={15} color={bannerColor} style={{ marginRight: 8, marginTop: 1 }} />
+                                <Text style={{ flex: 1, fontSize: 10, fontWeight: '600', color: bannerColor, lineHeight: 14 }}>
+                                  {bannerText}
+                                </Text>
+                              </View>
+                            );
+                          })()}
                         </View>
-                      </View>
-                    ) : (
+                      ) : null}
+
+                      {/* Scan / Refresh Button */}
+                      <TouchableOpacity
+                        style={[
+                          styles.nativeSaveButton, 
+                          { 
+                            backgroundColor: '#10B981', 
+                            shadowColor: '#10B981', 
+                            shadowOffset: { width: 0, height: 4 },
+                            shadowOpacity: 0.3,
+                            shadowRadius: 6,
+                            elevation: 4,
+                            borderWidth: 0,
+                            marginTop: 10
+                          }
+                        ]}
+                        onPress={handleRefreshDiagnostics}
+                        activeOpacity={0.85}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                          <Feather name="refresh-cw" size={15} color="#FFF" style={{ marginRight: 8 }} />
+                          <Text style={[styles.nativeSaveButtonText, { color: '#FFF' }]}>
+                            Segarkan Diagnostik
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+
+
+                    </View>
+                  </ScrollView>
+                );
+              })()}
+
+              {/* 2.5 PANEL REBOOT SISTEM MODEM */}
+              {activeMenu === 'reboot' ? (
+                <ScrollView 
+                  style={styles.fullscreenFormContainer}
+                  showsVerticalScrollIndicator={false}
+                >
+                  <View style={styles.formContentBox}>
+                    {rebootStep === 'rebooting' ? (
                       /* Rebooting Countdown Screen */
                       <View style={{ alignItems: 'center', paddingVertical: 15 }}>
                         <View style={[styles.cardInputGroup, { 
@@ -2354,13 +3229,13 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                           width: '100%' 
                         }]}>
                           {[
-                            { text: 'Mengirim perintah reboot ke sistem router', minSec: 55 },
-                            { text: 'Memutus sesi admin & memulai muat ulang hardware', minSec: 45 },
-                            { text: 'Modem sedang melakukan reboot, harap tunggu', minSec: 15 },
-                            { text: 'Mendeteksi sinyal WiFi & memicu aktif kontroler', minSec: 0 }
-                          ].map((step, idx) => {
+                            { text: 'Mengirim perintah reboot ke sistem modem', minSec: 55 },
+                            { text: 'Memutus sesi admin & memicu muat ulang hardware', minSec: 40 },
+                            { text: 'Modem sedang memuat ulang sistem, mohon tunggu...', minSec: 10 },
+                            { text: 'Menyelesaikan konfigurasi dan memulihkan koneksi', minSec: 0 }
+                          ].map((step, idx, arr) => {
                             const isDone = rebootCountdown < step.minSec;
-                            const isActive = rebootCountdown >= step.minSec && (idx === 0 || rebootCountdown < [55, 45, 15, 0][idx-1]);
+                            const isActive = rebootCountdown >= step.minSec && (idx === 0 || rebootCountdown < arr[idx-1].minSec);
                             return (
                               <View 
                                 key={idx} 
@@ -2401,17 +3276,218 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                           })}
                         </View>
                       </View>
+                    ) : (
+                      /* Main Idle Screen (Only Reboot button, NO cancel button) */
+                      <View style={{ alignItems: 'center', paddingVertical: 10 }}>
+                        <View style={[styles.cardInputGroup, { 
+                          backgroundColor: colors.card, 
+                          borderColor: colors.cardBorder, 
+                          padding: 24, 
+                          alignItems: 'center',
+                          width: '100%',
+                          marginBottom: 20
+                        }]}>
+                          {/* Glowing Power icon */}
+                          <View style={{ 
+                            width: 72, 
+                            height: 72, 
+                            borderRadius: 36, 
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)', 
+                            justifyContent: 'center', 
+                            alignItems: 'center', 
+                            marginBottom: 16, 
+                            borderWidth: 1.5, 
+                            borderColor: 'rgba(239, 68, 68, 0.3)' 
+                          }}>
+                            <Feather name="power" size={32} color="#EF4444" />
+                          </View>
+
+                          <Text style={[styles.formMainTitle, { color: colors.text, textAlign: 'center', fontSize: 18, fontWeight: '900' }]}>
+                            Mulai Ulang Sistem Modem
+                          </Text>
+                          <Text style={{ fontSize: 12, color: colors.subtext, textAlign: 'center', marginTop: 6, lineHeight: 18, paddingHorizontal: 12 }}>
+                            Mulai ulang (reboot) modem ZTE secara aman langsung dari aplikasi jika jaringan WiFi melambat atau bermasalah.
+                          </Text>
+                        </View>
+
+                        {/* Single Reboot Button (No Cancel button) */}
+                        <TouchableOpacity
+                          style={{
+                            width: '100%',
+                            height: 48,
+                            borderRadius: 10,
+                            backgroundColor: '#EF4444',
+                            shadowColor: '#EF4444',
+                            shadowOffset: { width: 0, height: 4 },
+                            shadowOpacity: 0.3,
+                            shadowRadius: 6,
+                            elevation: 4,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                          }}
+                          onPress={() => setShowRebootModal(true)}
+                          activeOpacity={0.8}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                            <Feather name="power" size={16} color="#FFF" style={{ marginRight: 8 }} />
+                            <Text style={{ fontSize: 14, fontWeight: '900', color: '#FFF' }}>
+                              Reboot Modem
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+
+                        {/* Custom themed Modal Peringatan Reboot */}
+                        <Modal
+                          visible={showRebootModal}
+                          transparent={true}
+                          animationType="fade"
+                          onRequestClose={() => setShowRebootModal(false)}
+                        >
+                          <View style={{
+                            flex: 1,
+                            backgroundColor: 'rgba(9, 10, 18, 0.85)',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            paddingHorizontal: 24,
+                          }}>
+                            <View style={{
+                              width: '100%',
+                              backgroundColor: colors.card,
+                              borderColor: colors.cardBorder,
+                              borderWidth: 1,
+                              borderRadius: 16,
+                              padding: 20,
+                              alignItems: 'center',
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 10 },
+                              shadowOpacity: 0.3,
+                              shadowRadius: 12,
+                              elevation: 8,
+                            }}>
+                              {/* Warning Icon Container */}
+                              <View style={{
+                                width: 56,
+                                height: 56,
+                                borderRadius: 28,
+                                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                marginBottom: 16,
+                                borderWidth: 1.5,
+                                borderColor: 'rgba(239, 68, 68, 0.3)',
+                              }}>
+                                <Feather name="power" size={24} color="#EF4444" />
+                              </View>
+
+                              {/* Modal Title */}
+                              <Text style={{
+                                fontSize: 18,
+                                fontWeight: '900',
+                                color: colors.text,
+                                textAlign: 'center',
+                                marginBottom: 10,
+                                letterSpacing: -0.2,
+                              }}>
+                                Konfirmasi Reboot Modem
+                              </Text>
+
+                              {/* Modal Message */}
+                              <Text style={{
+                                fontSize: 12,
+                                color: colors.subtext,
+                                textAlign: 'center',
+                                lineHeight: 18,
+                                marginBottom: 14,
+                                fontWeight: '600',
+                              }}>
+                                Apakah Anda yakin ingin memulai ulang (reboot) modem?
+                              </Text>
+
+                              {/* Warning Notice box inside Modal */}
+                              <View style={{ 
+                                backgroundColor: isDark ? 'rgba(245, 158, 11, 0.06)' : 'rgba(245, 158, 11, 0.08)', 
+                                borderColor: isDark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.2)', 
+                                borderWidth: 1, 
+                                borderRadius: 10,
+                                padding: 12, 
+                                marginBottom: 20,
+                                flexDirection: 'row', 
+                                alignItems: 'flex-start',
+                                width: '100%'
+                              }}>
+                                <Feather name="alert-triangle" size={14} color="#F59E0B" style={{ marginRight: 8, marginTop: 1 }} />
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ fontSize: 11, fontWeight: '800', color: isDark ? '#F59E0B' : '#D97706' }}>Perhatian Penting</Text>
+                                  <Text style={{ fontSize: 10, color: colors.subtext, marginTop: 3, lineHeight: 14 }}>
+                                    Koneksi internet dan jaringan WiFi akan terputus total selama proses reboot (sekitar 60-90 detik). Harap tunggu sampai modem selesai memuat ulang.
+                                  </Text>
+                                </View>
+                              </View>
+
+                              {/* Modal Buttons Grid */}
+                              <View style={{
+                                flexDirection: 'row',
+                                width: '100%',
+                                gap: 12,
+                              }}>
+                                <TouchableOpacity
+                                  style={{
+                                    flex: 1,
+                                    height: 44,
+                                    borderRadius: 10,
+                                    backgroundColor: colors.buttonBg,
+                                    borderWidth: 1,
+                                    borderColor: colors.inputBorder,
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                  }}
+                                  onPress={() => setShowRebootModal(false)}
+                                  activeOpacity={0.8}
+                                >
+                                  <Text style={{ fontSize: 13, fontWeight: '800', color: colors.subtext }}>
+                                    Batalkan
+                                  </Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                  style={{
+                                    flex: 1,
+                                    height: 44,
+                                    borderRadius: 10,
+                                    backgroundColor: '#EF4444',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                    shadowColor: '#EF4444',
+                                    shadowOffset: { width: 0, height: 4 },
+                                    shadowOpacity: 0.3,
+                                    shadowRadius: 6,
+                                    elevation: 4,
+                                  }}
+                                  onPress={handleInjectReboot}
+                                  activeOpacity={0.8}
+                                >
+                                  <Text style={{ fontSize: 13, fontWeight: '900', color: '#FFF' }}>
+                                    Ya, Reboot
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+                          </View>
+                        </Modal>
+
+
+                      </View>
                     )}
                   </View>
                 </ScrollView>
-              )}
+              ) : null}
             </View>
           )}
         </View>
-      )}
+      ) : null}
 
       {/* Render overlay form di atas webview hanya jika showWebView aktif & WLAN terdeteksi */}
-      {showWebView && showWlanForm && (
+      {showWebView && showWlanForm ? (
         <Animated.View style={[
           styles.wlanFormContainer,
           {
@@ -2489,7 +3565,11 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                 </View>
               ) : (
                 <TouchableOpacity 
-                  style={styles.saveButton}
+                  style={[
+                    styles.saveButton,
+                    !isWlanFormValid && { backgroundColor: isDark ? '#334155' : '#CBD5E1', shadowColor: 'transparent', elevation: 0 }
+                  ]}
+                  disabled={!isWlanFormValid}
                   onPress={() => {
                     if (!newSsid.trim()) {
                       Alert.alert('Gagal', 'Nama WiFi tidak boleh kosong.');
@@ -2505,17 +3585,26 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                   }}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.saveButtonText}>Simpan Perubahan WiFi</Text>
+                  <Text style={[styles.saveButtonText, !isWlanFormValid && { color: isDark ? '#64748B' : '#94A3B8' }]}>Simpan Perubahan WiFi</Text>
                 </TouchableOpacity>
               )}
             </View>
           </ScrollView>
         </Animated.View>
-      )}
+      ) : null}
 
       {/* Navigation bar (Hanya tampil jika showWebView aktif agar navigasi browser normal tetap bisa digunakan) */}
-      {showWebView && (
-        <View style={[styles.navigationBar, { backgroundColor: colors.headerBg, borderColor: colors.headerBorder, justifyContent: 'space-around' }]}>
+      {showWebView ? (
+        <View style={[
+          styles.navigationBar, 
+          { 
+            backgroundColor: colors.headerBg, 
+            borderColor: colors.headerBorder, 
+            justifyContent: 'space-around',
+            height: Platform.OS === 'ios' ? 76 : 60,
+            paddingBottom: Platform.OS === 'ios' ? 16 : 0
+          }
+        ]}>
           <TouchableOpacity 
             style={[styles.navButton, !canGoBack && styles.disabledButton, { backgroundColor: 'transparent' }]} 
             onPress={handleGoBack} 
@@ -2542,15 +3631,20 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
             <Feather name="chevron-right" size={24} color={canGoForward ? colors.activeBlue : colors.subtext} />
           </TouchableOpacity>
         </View>
-      )}
+      ) : null}
 
-      {isLoggingOut && (
+      {/* Overlay Logout Sesi Bersih */}
+      <Modal
+        visible={isLoggingOut}
+        transparent={true}
+        animationType="fade"
+      >
         <View style={styles.logoutOverlayContainer}>
           <ActivityIndicator size="large" color="#EF4444" style={{ marginBottom: 16 }} />
           <Text style={styles.logoutOverlayTitle}>Mengakhiri Sesi...</Text>
           <Text style={styles.logoutOverlaySub}>Menutup sesi aktif Anda pada portal modem secara aman</Text>
         </View>
-      )}
+      </Modal>
 
       {/* Custom themed Modal Peringatan Reboot Jaringan */}
       <Modal
@@ -2604,7 +3698,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
               marginBottom: 10,
               letterSpacing: -0.2,
             }}>
-              Peringatan Reboot Jaringan
+              Konfirmasi Perubahan WiFi
             </Text>
 
             {/* Modal Message */}
@@ -2616,7 +3710,7 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
               marginBottom: 20,
               fontWeight: '600',
             }}>
-              Setelah menekan tombol simpan, koneksi WiFi HP Anda akan terputus karena modem me-restart jaringan nirkabel. Harap tunggu hingga modem selesai merestart dan hubungkan kembali HP Anda dengan nama/kata sandi baru.
+              Apakah Anda yakin ingin menyimpan nama (SSID) atau kata sandi WiFi baru? Modem akan merestart modul nirkabel (WiFi) untuk menerapkan konfigurasi baru, sehingga koneksi HP Anda akan terputus sementara.
             </Text>
 
             {/* Modal Buttons Grid */}
@@ -2669,6 +3763,305 @@ export const ModemWebViewScreen: React.FC<ModemWebViewScreenProps> = ({
                 </Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Custom themed Modal Sukses Reboot */}
+      <Modal
+        visible={showSuccessModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setShowSuccessModal(false);
+          onBack();
+        }}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(9, 10, 18, 0.85)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          paddingHorizontal: 24,
+        }}>
+          <View style={{
+            width: '100%',
+            backgroundColor: colors.card,
+            borderColor: colors.cardBorder,
+            borderWidth: 1,
+            borderRadius: 16,
+            padding: 20,
+            alignItems: 'center',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 10 },
+            shadowOpacity: 0.3,
+            shadowRadius: 12,
+            elevation: 8,
+          }}>
+            {/* Success Icon Container */}
+            <View style={{
+              width: 56,
+              height: 56,
+              borderRadius: 28,
+              backgroundColor: 'rgba(16, 185, 129, 0.1)',
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginBottom: 16,
+              borderWidth: 1.5,
+              borderColor: 'rgba(16, 185, 129, 0.3)',
+            }}>
+              <Feather name="check" size={28} color="#10B981" />
+            </View>
+
+            {/* Modal Title */}
+            <Text style={{
+              fontSize: 18,
+              fontWeight: '900',
+              color: colors.text,
+              textAlign: 'center',
+              marginBottom: 10,
+              letterSpacing: -0.2,
+            }}>
+              Reboot Berhasil
+            </Text>
+
+            {/* Modal Message */}
+            <Text style={{
+              fontSize: 12,
+              color: colors.subtext,
+              textAlign: 'center',
+              lineHeight: 18,
+              marginBottom: 20,
+              fontWeight: '600',
+            }}>
+              Perintah reboot berhasil dijalankan. Modem sedang memuat ulang sistemnya, silakan hubungkan HP kembali setelah lampu indikator WiFi menyala normal.
+            </Text>
+
+            {/* Modal Button */}
+            <TouchableOpacity
+              style={{
+                width: '100%',
+                height: 44,
+                borderRadius: 10,
+                backgroundColor: '#10B981',
+                justifyContent: 'center',
+                alignItems: 'center',
+                shadowColor: '#10B981',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 6,
+                elevation: 4,
+              }}
+              onPress={() => {
+                setShowSuccessModal(false);
+                onBack();
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '900', color: '#FFF' }}>
+                Kembali ke Dashboard
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Custom themed Modal Sukses Simpan WLAN */}
+      <Modal
+        visible={showWlanSuccessModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setShowWlanSuccessModal(false);
+          setShowWlanForm(false);
+          onBack();
+        }}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(9, 10, 18, 0.85)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          paddingHorizontal: 24,
+        }}>
+          <View style={{
+            width: '100%',
+            backgroundColor: colors.card,
+            borderColor: colors.cardBorder,
+            borderWidth: 1,
+            borderRadius: 16,
+            padding: 20,
+            alignItems: 'center',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 10 },
+            shadowOpacity: 0.3,
+            shadowRadius: 12,
+            elevation: 8,
+          }}>
+            {/* Success Icon Container */}
+            <View style={{
+              width: 56,
+              height: 56,
+              borderRadius: 28,
+              backgroundColor: 'rgba(16, 185, 129, 0.1)',
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginBottom: 16,
+              borderWidth: 1.5,
+              borderColor: 'rgba(16, 185, 129, 0.3)',
+            }}>
+              <Feather name="check" size={28} color="#10B981" />
+            </View>
+
+            {/* Modal Title */}
+            <Text style={{
+              fontSize: 18,
+              fontWeight: '900',
+              color: colors.text,
+              textAlign: 'center',
+              marginBottom: 10,
+              letterSpacing: -0.2,
+            }}>
+              WiFi Berhasil Diperbarui
+            </Text>
+
+            {/* Modal Message */}
+            <Text style={{
+              fontSize: 12,
+              color: colors.subtext,
+              textAlign: 'center',
+              lineHeight: 18,
+              marginBottom: 20,
+              fontWeight: '600',
+            }}>
+              Nama dan kata sandi WiFi baru telah diterapkan ke modem. Silakan hubungkan kembali HP Anda ke WiFi baru melalui pengaturan sistem jika koneksi terputus.
+            </Text>
+
+            {/* Modal Button */}
+            <TouchableOpacity
+              style={{
+                width: '100%',
+                height: 44,
+                borderRadius: 10,
+                backgroundColor: '#10B981',
+                justifyContent: 'center',
+                alignItems: 'center',
+                shadowColor: '#10B981',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 6,
+                elevation: 4,
+              }}
+              onPress={() => {
+                setShowWlanSuccessModal(false);
+                setShowWlanForm(false);
+                onBack();
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '900', color: '#FFF' }}>
+                Kembali ke Dashboard
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Custom themed Modal Sesi Berakhir (Timeout) */}
+      <Modal
+        visible={showSessionTimeoutModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setShowSessionTimeoutModal(false);
+          handleBackWithLogout();
+        }}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(9, 10, 18, 0.85)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          paddingHorizontal: 24,
+        }}>
+          <View style={{
+            width: '100%',
+            backgroundColor: colors.card,
+            borderColor: colors.cardBorder,
+            borderWidth: 1,
+            borderRadius: 16,
+            padding: 20,
+            alignItems: 'center',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 10 },
+            shadowOpacity: 0.3,
+            shadowRadius: 12,
+            elevation: 8,
+          }}>
+            {/* Warning Icon Container */}
+            <View style={{
+              width: 56,
+              height: 56,
+              borderRadius: 28,
+              backgroundColor: isDark ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.15)',
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginBottom: 16,
+              borderWidth: 1.5,
+              borderColor: isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.25)',
+            }}>
+              <Feather name="clock" size={28} color="#EF4444" />
+            </View>
+
+            {/* Modal Title */}
+            <Text style={{
+              fontSize: 18,
+              fontWeight: '900',
+              color: colors.text,
+              textAlign: 'center',
+              marginBottom: 10,
+              letterSpacing: -0.2,
+            }}>
+              Sesi Anda Berakhir
+            </Text>
+
+            {/* Modal Message */}
+            <Text style={{
+              fontSize: 12,
+              color: colors.subtext,
+              textAlign: 'center',
+              lineHeight: 18,
+              marginBottom: 20,
+              fontWeight: '600',
+            }}>
+              Sesi masuk Anda telah berakhir (timeout) atau tidak terdeteksi adanya aktivitas. Silakan masuk kembali dari dashboard utama.
+            </Text>
+
+            {/* Modal Button */}
+            <TouchableOpacity
+              style={{
+                width: '100%',
+                height: 44,
+                borderRadius: 10,
+                backgroundColor: '#EF4444',
+                justifyContent: 'center',
+                alignItems: 'center',
+                shadowColor: '#EF4444',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 6,
+                elevation: 4,
+              }}
+              onPress={() => {
+                setShowSessionTimeoutModal(false);
+                handleBackWithLogout();
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '900', color: '#FFF' }}>
+                Kembali ke Dashboard
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -8,8 +8,12 @@ import {
   TextInput,
   Dimensions,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Animated,
+  Modal,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Feather } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
 
@@ -18,19 +22,99 @@ interface DashboardScreenProps {
   onOpenGateway: (ip: string) => void;
   isTechMode: boolean;
   setIsTechMode: (val: boolean) => void;
+  theme: 'light' | 'dark';
+  toggleTheme: () => void;
 }
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ 
   onNavigate, 
   onOpenGateway,
   isTechMode,
-  setIsTechMode
+  setIsTechMode,
+  theme,
+  toggleTheme
 }) => {
+  const isDark = theme === 'dark';
+  const colors = {
+    bg: isDark ? '#090A12' : '#F8FAFC',
+    card: isDark ? '#111322' : '#FFFFFF',
+    text: isDark ? '#FFFFFF' : '#0F172A',
+    subtext: isDark ? '#64748B' : '#475569',
+    inputBg: isDark ? '#090A12' : '#F1F5F9',
+    inputBorder: isDark ? '#1E293B' : '#E2E8F0',
+    inputText: isDark ? '#F8FAFC' : '#0F172A',
+    headerBorder: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(15, 23, 42, 0.06)',
+    cardBorder: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(15, 23, 42, 0.05)',
+    buttonBg: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(15, 23, 42, 0.04)',
+    activeBlue: '#06B6D4',
+  };
+
   const [ipInput, setIpInput] = useState('192.168.1.1');
   const [isFocused, setIsFocused] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean | 'checking'>('checking');
   const [hasManuallyEdited, setHasManuallyEdited] = useState(false);
   const [discoveredAutomatically, setDiscoveredAutomatically] = useState(false);
+  const [showModeModal, setShowModeModal] = useState(false);
+  const [modeModalType, setModeModalType] = useState<'tech' | 'regular'>('regular');
+
+  const wifiScale = useRef(new Animated.Value(1)).current;
+  const orbitRotation = useRef(new Animated.Value(0)).current;
+
+  // Efek animasi rotasi orbit radar yang super mulus
+  useEffect(() => {
+    Animated.loop(
+      Animated.timing(orbitRotation, {
+        toValue: 1,
+        duration: 8000,
+        useNativeDriver: true,
+      })
+    ).start();
+  }, [orbitRotation]);
+
+  // Efek animasi bernapas (breathing scale) untuk ikon WiFi di pusat
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(wifiScale, {
+          toValue: 1.08,
+          duration: 1500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(wifiScale, {
+          toValue: 0.94,
+          duration: 1500,
+          useNativeDriver: true,
+        })
+      ])
+    ).start();
+  }, [wifiScale]);
+
+  // Interpolasi derajat putaran orbit
+  const spinClockwise = orbitRotation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg']
+  });
+
+  const spinCounterClockwise = orbitRotation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['360deg', '0deg']
+  });
+
+  // Memuat IP Gateway tersimpan dari AsyncStorage saat mount
+  useEffect(() => {
+    const loadSavedIp = async () => {
+      try {
+        const savedIp = await AsyncStorage.getItem('SAVED_GATEWAY_IP');
+        if (savedIp) {
+          setIpInput(savedIp);
+          setHasManuallyEdited(true);
+        }
+      } catch (e) {
+        console.warn('Gagal memuat IP tersimpan:', e);
+      }
+    };
+    loadSavedIp();
+  }, []);
 
   // States untuk Secret Technician Mode (Ketuk Logo 5x)
   const [lastTap, setLastTap] = useState(0);
@@ -45,7 +129,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
       if (newCount >= 5) {
         const nextMode = !isTechMode;
         setIsTechMode(nextMode);
-        alert(nextMode ? "🛠️ Mode Asisten Jaringan Teknisi Aktif!" : "🔒 Mode Asisten Jaringan Teknisi Nonaktif!");
+        setModeModalType(nextMode ? 'tech' : 'regular');
+        setShowModeModal(true);
         setTapCount(0);
       }
     } else {
@@ -72,6 +157,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
       
       clearTimeout(timeoutId);
       setIsOnline(true);
+      try {
+        await AsyncStorage.setItem('SAVED_GATEWAY_IP', cleanIp);
+      } catch (e) {}
       return true; // online
     } catch (error) {
       // Jika fetch gagal dan kita ingin mencoba auto-discover (hanya jika user belum edit manual)
@@ -79,7 +167,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
         setIsOnline('checking');
         
         // Saring daftar IP alternatif selain yang baru saja dicoba
-        const alternatives = ['192.168.1.1', '192.168.0.1', '10.0.0.1'].filter(
+        const alternatives = ['192.168.1.1', '192.168.0.1'].filter(
           ip => ip !== ipToTest.trim()
         );
         
@@ -101,6 +189,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
             setIpInput(altIp); // Ubah input secara otomatis!
             setIsOnline(true);  // Set online!
             setDiscoveredAutomatically(true);
+            try {
+              await AsyncStorage.setItem('SAVED_GATEWAY_IP', altIp);
+            } catch (e) {}
             return true;
           } catch (e) {
             // Lanjut mencoba IP alternatif berikutnya
@@ -150,35 +241,45 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
       style={{ flex: 1 }} 
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.bg }]}>
         {/* HEADER SECTION */}
-        <View style={styles.header}>
+        <View style={[styles.header, { borderColor: colors.headerBorder }]}>
           <TouchableOpacity activeOpacity={0.8} onPress={handleLogoPress}>
-            <Text style={styles.brandTitle}>
-              NetGateway {isTechMode && <Text style={{ fontSize: 16, color: '#06B6D4' }}>🛠️</Text>}
+            <Text style={[styles.brandTitle, { color: colors.text }]}>
+              WiFiKu {isTechMode && <Feather name="tool" size={16} color="#06B6D4" />}
             </Text>
-            <Text style={styles.brandSubtitle}>Router Assistant & Utility</Text>
+            <Text style={[styles.brandSubtitle, { color: colors.subtext }]}>Manajer Modem ZTE F663V3A</Text>
           </TouchableOpacity>
-          <View style={[
-            styles.statusBadge,
-            isOnline === true && styles.statusBadgeOnline,
-            isOnline === false && styles.statusBadgeOffline,
-            isOnline === 'checking' && styles.statusBadgeChecking,
-          ]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity 
+              style={[styles.themeButton, { backgroundColor: colors.buttonBg, borderColor: colors.inputBorder }]} 
+              onPress={toggleTheme}
+              activeOpacity={0.7}
+            >
+              <Feather name={theme === 'dark' ? 'sun' : 'moon'} size={15} color={colors.text} />
+            </TouchableOpacity>
+
             <View style={[
-              styles.statusDot,
-              isOnline === true && styles.statusDotOnline,
-              isOnline === false && styles.statusDotOffline,
-              isOnline === 'checking' && styles.statusDotChecking,
-            ]} />
-            <Text style={[
-              styles.statusText,
-              isOnline === true && styles.statusTextOnline,
-              isOnline === false && styles.statusTextOffline,
-              isOnline === 'checking' && styles.statusTextChecking,
+              styles.statusBadge,
+              isOnline === true && styles.statusBadgeOnline,
+              isOnline === false && styles.statusBadgeOffline,
+              isOnline === 'checking' && styles.statusBadgeChecking,
             ]}>
-              {isOnline === true ? 'ONLINE' : isOnline === false ? 'OFFLINE' : 'MENGECEK...'}
-            </Text>
+              <View style={[
+                styles.statusDot,
+                isOnline === true && styles.statusDotOnline,
+                isOnline === false && styles.statusDotOffline,
+                isOnline === 'checking' && styles.statusDotChecking,
+              ]} />
+              <Text style={[
+                styles.statusText,
+                isOnline === true && styles.statusTextOnline,
+                isOnline === false && styles.statusTextOffline,
+                isOnline === 'checking' && styles.statusTextChecking,
+              ]}>
+                {isOnline === true ? 'ONLINE' : isOnline === false ? 'OFFLINE' : 'MENGECEK...'}
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -189,24 +290,58 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
         >
           <View style={{ flex: 1 }}>
             {/* QUICK GATEWAY PORTAL CARD */}
-          <View style={styles.gatewayCard}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardEmoji}>🖥️</Text>
-              <View>
-                <Text style={styles.cardTitle}>Portal Gateway Modem</Text>
-                <Text style={styles.cardDesc}>Masukkan IP modem untuk membuka halaman admin</Text>
+          <View style={[styles.gatewayCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+            <View style={{ alignItems: 'center', marginBottom: 22, marginTop: 10 }}>
+              {/* Outer Orbit Container */}
+              <View style={{ width: 120, height: 120, justifyContent: 'center', alignItems: 'center', marginBottom: 12 }}>
+                
+                {/* Ring 1: Outer Orbit (Dashed, Rotating Clockwise) */}
+                <Animated.View style={{
+                  position: 'absolute',
+                  width: 110,
+                  height: 110,
+                  borderRadius: 55,
+                  borderWidth: 1.5,
+                  borderColor: 'rgba(6, 182, 212, 0.4)',
+                  borderStyle: 'dashed',
+                  transform: [{ rotate: spinClockwise }]
+                }} />
+
+                {/* Ring 2: Inner Orbit (Dashed, Rotating Counter-Clockwise) */}
+                <Animated.View style={{
+                  position: 'absolute',
+                  width: 85,
+                  height: 85,
+                  borderRadius: 42.5,
+                  borderWidth: 1,
+                  borderColor: 'rgba(6, 182, 212, 0.25)',
+                  borderStyle: 'dashed',
+                  transform: [{ rotate: spinCounterClockwise }]
+                }} />
+
+                {/* Center WiFi Icon (with gentle breathing scale animation!) */}
+                <Animated.View style={{
+                  transform: [{ scale: wifiScale }],
+                  justifyContent: 'center',
+                  alignItems: 'center'
+                }}>
+                  <Feather name="wifi" size={44} color="#06B6D4" />
+                </Animated.View>
+                
               </View>
+              <Text style={[styles.cardTitle, { color: colors.text, textAlign: 'center', fontSize: 19, fontWeight: '800', letterSpacing: 0.5 }]}>Portal Admin ZTE F663V3A</Text>
+              
             </View>
 
-            <View style={[styles.inputContainer, isFocused && styles.inputFocused]}>
+            <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: isFocused ? colors.activeBlue : colors.inputBorder }]}>
               <Text style={styles.inputPrefix}>http://</Text>
               <TextInput
-                style={styles.textInput}
+                style={[styles.textInput, { color: colors.inputText }]}
                 value={ipInput}
                 onChangeText={handleManualChange}
                 placeholder="192.168.1.1"
-                placeholderTextColor="#475569"
-                keyboardType="numeric"
+                placeholderTextColor={isDark ? '#475569' : '#94A3B8'}
+                keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
                 autoCapitalize="none"
                 autoCorrect={false}
                 onFocus={() => setIsFocused(true)}
@@ -219,6 +354,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
                 styles.connectButton,
                 isOnline === false && styles.connectButtonDisabled,
                 isOnline === 'checking' && styles.connectButtonChecking,
+                isOnline === true && { backgroundColor: colors.activeBlue }
               ]}
               onPress={handleOpenGateway}
               activeOpacity={0.8}
@@ -228,35 +364,36 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
                 styles.connectButtonText,
                 isOnline === false && styles.connectButtonTextDisabled,
                 isOnline === 'checking' && styles.connectButtonTextChecking,
+                isOnline === true && { color: '#FFFFFF' }
               ]}>
-                {isOnline === true ? 'Buka Portal Modem 🚀' : isOnline === false ? 'Modem Offline ❌' : 'Mengecek Koneksi... 🔄'}
+                {isOnline === true ? 'Buka Portal Modem' : isOnline === false ? 'Modem Offline' : 'Mengecek Koneksi...'}
               </Text>
             </TouchableOpacity>
 
             {discoveredAutomatically && isOnline === true && (
               <Text style={styles.discoveredText}>
-                ✨ IP Modem terdeteksi otomatis pada {ipInput}!
+                IP Modem terdeteksi otomatis pada {ipInput}!
               </Text>
             )}
 
             {isOnline === false && (
               <Text style={styles.offlineWarningText}>
-                ⚠️ Ponsel Anda offline atau tidak terhubung ke WiFi modem. Silakan aktifkan WiFi dan sambungkan ke jaringan router {ipInput} untuk melanjutkan.
+                Ponsel Anda offline atau tidak terhubung ke WiFi modem. Silakan aktifkan WiFi dan sambungkan ke jaringan router {ipInput} untuk melanjutkan.
               </Text>
             )}
 
             <View style={styles.ipSuggestions}>
               <TouchableOpacity 
                 onPress={() => handleSuggestionPress('192.168.1.1')} 
-                style={styles.suggestionBadge}
+                style={[styles.suggestionBadge, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, borderWidth: 1 }]}
               >
-                <Text style={styles.suggestionText}>192.168.1.1</Text>
+                <Text style={[styles.suggestionText, { color: colors.subtext }]}>192.168.1.1</Text>
               </TouchableOpacity>
               <TouchableOpacity 
                 onPress={() => handleSuggestionPress('192.168.0.1')} 
-                style={styles.suggestionBadge}
+                style={[styles.suggestionBadge, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, borderWidth: 1 }]}
               >
-                <Text style={styles.suggestionText}>192.168.0.1</Text>
+                <Text style={[styles.suggestionText, { color: colors.subtext }]}>192.168.0.1</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -264,68 +401,198 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           {/* MENU GRID - HANYA DITAMPILKAN UNTUK MODE TEKNISI (SECRET ACCESS) */}
           {isTechMode && (
             <>
-              <Text style={styles.sectionTitle}>Peralatan Bantu Teknisi 🛠️</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Peralatan Bantu Teknisi</Text>
+
+              {/* ROW 1: SETTINGS (full-width) */}
+              <TouchableOpacity
+                style={[styles.settingsCard, { backgroundColor: colors.card, borderColor: colors.cardBorder, marginBottom: 14 }]}
+                onPress={() => onNavigate('settings')}
+                activeOpacity={0.85}
+              >
+                <View style={[styles.itemIconContainer, { backgroundColor: 'rgba(245, 158, 11, 0.1)', width: 40, height: 40, marginBottom: 0, marginRight: 14 }]}>
+                  <Feather name="settings" size={20} color="#F59E0B" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.itemTitle, { color: colors.text, marginBottom: 2 }]}>Pengaturan Kredensial</Text>
+                  <Text style={[styles.itemDesc, { color: colors.subtext }]}>Simpan username & password login admin modem ZTE F663V3A.</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color={colors.subtext} />
+              </TouchableOpacity>
+
               <View style={styles.gridContainer}>
                 {/* CARD 1: PASSWORD CREDENTIALS */}
                 <TouchableOpacity 
-                  style={styles.gridItem} 
+                  style={[styles.gridItem, { backgroundColor: colors.card, borderColor: colors.cardBorder }]} 
                   onPress={() => onNavigate('credentials')}
                   activeOpacity={0.85}
                 >
                   <View style={[styles.itemIconContainer, { backgroundColor: 'rgba(6, 182, 212, 0.1)' }]}>
-                    <Text style={styles.itemIcon}>🔑</Text>
+                    <Feather name="key" size={22} color="#06B6D4" />
                   </View>
-                  <Text style={styles.itemTitle}>Sandi Bawaan</Text>
-                  <Text style={styles.itemDesc}>Database username & password admin bawaan pabrik modem.</Text>
+                  <Text style={[styles.itemTitle, { color: colors.text }]}>Sandi Bawaan</Text>
+                  <Text style={[styles.itemDesc, { color: colors.subtext }]}>Database username & password admin bawaan pabrik modem.</Text>
                 </TouchableOpacity>
 
                 {/* CARD 2: PING TESTER */}
                 <TouchableOpacity 
-                  style={styles.gridItem} 
+                  style={[styles.gridItem, { backgroundColor: colors.card, borderColor: colors.cardBorder }]} 
                   onPress={() => onNavigate('ping')}
                   activeOpacity={0.85}
                 >
                   <View style={[styles.itemIconContainer, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
-                    <Text style={styles.itemIcon}>⚡</Text>
+                    <Feather name="zap" size={22} color="#3B82F6" />
                   </View>
-                  <Text style={styles.itemTitle}>Tes Ping Jaringan</Text>
-                  <Text style={styles.itemDesc}>Uji kestabilan dan latensi respon koneksi modem secara real-time.</Text>
+                  <Text style={[styles.itemTitle, { color: colors.text }]}>Tes Ping Jaringan</Text>
+                  <Text style={[styles.itemDesc, { color: colors.subtext }]}>Uji kestabilan dan latensi respon koneksi modem secara real-time.</Text>
                 </TouchableOpacity>
               </View>
             </>
           )}
 
           {/* DIAGNOSA JARINGAN - SELALU DITAMPILKAN UNTUK PELANGGAN MAUPUN TEKNISI */}
-          <Text style={styles.sectionTitle}>Pusat Bantuan & Panduan</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Pusat Bantuan & Panduan</Text>
 
           {/* FULL WIDTH CARD: NETWORK GUIDE */}
           <TouchableOpacity 
-            style={styles.guideCard} 
+            style={[styles.guideCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]} 
             onPress={() => onNavigate('guide')}
             activeOpacity={0.85}
           >
             <View style={styles.guideLeft}>
               <View style={styles.guideIconBg}>
-                <Text style={styles.guideIcon}>🛠️</Text>
+                <Feather name="book-open" size={20} color="#06B6D4" />
               </View>
               <View style={styles.guideTextContainer}>
-                <Text style={styles.guideTitle}>Panduan Diagnosa Jaringan</Text>
-                <Text style={styles.guideDesc}>Solusi cepat jika modem los merah atau koneksi internet lambat.</Text>
+                <Text style={[styles.guideTitle, { color: colors.text }]}>Panduan Diagnosa Jaringan</Text>
+                <Text style={[styles.guideDesc, { color: colors.subtext }]}>Solusi cepat jika modem los merah atau koneksi internet lambat.</Text>
               </View>
             </View>
-            <Text style={styles.guideArrow}>➡️</Text>
+            <Feather name="chevron-right" size={18} color={colors.subtext} />
           </TouchableOpacity>
           </View>
 
           <View style={styles.footer}>
-            <Text style={styles.footerParentText}>
-              Developed by <Text style={styles.footerWhiteText}>MARZUQ NETWORK</Text>
+            <Text style={[styles.footerParentText, { color: colors.subtext }]}>
+              Dikembangkan oleh <Text style={[styles.footerWhiteText, { color: colors.text }]}>MARZUQ NETWORK</Text>
             </Text>
             <Text style={styles.footerSubText}>
-              Part of <Text style={styles.footerNusantaraText}>Nusantara Group</Text> • Powered By <Text style={styles.footerDexaText}>DEXA</Text><Text style={styles.footerNetText}>NET</Text>
+              Bagian dari <Text style={styles.footerNusantaraText}>Nusantara Group</Text> • Didukung Oleh <Text style={styles.footerDexaText}>DEXA</Text><Text style={styles.footerNetText}>NET</Text>
             </Text>
           </View>
         </ScrollView>
+      {/* Custom themed Modal Beralih Mode Teknisi & Pelanggan */}
+      <Modal
+        visible={showModeModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowModeModal(false)}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(9, 10, 18, 0.85)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          paddingHorizontal: 24,
+        }}>
+          <View style={{
+            width: '100%',
+            backgroundColor: colors.card,
+            borderColor: colors.cardBorder,
+            borderWidth: 1,
+            borderRadius: 18,
+            padding: 24,
+            alignItems: 'center',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 10 },
+            shadowOpacity: 0.35,
+            shadowRadius: 16,
+            elevation: 10,
+          }}>
+            {/* Glowing Icon Container based on Mode */}
+            <View style={{
+              width: 64,
+              height: 64,
+              borderRadius: 32,
+              backgroundColor: modeModalType === 'tech' ? 'rgba(6, 182, 212, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginBottom: 16,
+              borderWidth: 1.5,
+              borderColor: modeModalType === 'tech' ? 'rgba(6, 182, 212, 0.25)' : 'rgba(16, 185, 129, 0.25)',
+            }}>
+              <Feather 
+                name={modeModalType === 'tech' ? 'tool' : 'user'} 
+                size={30} 
+                color={modeModalType === 'tech' ? '#06B6D4' : '#10B981'} 
+              />
+            </View>
+
+            {/* Modal Title */}
+            <Text style={{
+              fontSize: 18,
+              fontWeight: '900',
+              color: colors.text,
+              textAlign: 'center',
+              letterSpacing: -0.2,
+            }}>
+              {modeModalType === 'tech' ? 'Mode Teknisi Aktif' : 'Mode Pelanggan Aktif'}
+            </Text>
+
+            {/* Modal Subtitle */}
+            <Text style={{
+              fontSize: 11,
+              fontWeight: '700',
+              color: modeModalType === 'tech' ? '#06B6D4' : '#10B981',
+              textAlign: 'center',
+              marginTop: 2,
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
+            }}>
+              {modeModalType === 'tech' ? 'Akses Penuh Fitur Jaringan' : 'Navigasi Sederhana & Aman'}
+            </Text>
+
+            {/* Modal Message */}
+            <Text style={{
+              fontSize: 12,
+              color: colors.subtext,
+              textAlign: 'center',
+              lineHeight: 18,
+              marginTop: 14,
+              marginBottom: 24,
+              fontWeight: '600',
+              paddingHorizontal: 6,
+            }}>
+              {modeModalType === 'tech' 
+                ? 'Fitur tingkat lanjut seperti status diagnostik daya optik, daftar perangkat terhubung penuh, dan monitoring IP Gateway sekarang dapat Anda kelola secara langsung.'
+                : 'Aplikasi telah kembali ke mode tampilan standar untuk pelanggan. Seluruh fitur konfigurasi dasar tetap dapat diakses dengan mudah dan aman.'
+              }
+            </Text>
+
+            {/* Continue Button */}
+            <TouchableOpacity
+              style={{
+                width: '100%',
+                height: 46,
+                borderRadius: 10,
+                backgroundColor: '#06B6D4',
+                shadowColor: '#06B6D4',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 6,
+                elevation: 4,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+              onPress={() => setShowModeModal(false)}
+              activeOpacity={0.8}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '900', color: '#FFF' }}>
+                {modeModalType === 'tech' ? 'Mengerti & Lanjutkan' : 'Kembali ke Dashboard'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
       </View>
     </KeyboardAvoidingView>
   );
@@ -357,6 +624,14 @@ const styles = StyleSheet.create({
     color: '#64748B',
     marginTop: 2,
     fontWeight: '600',
+  },
+  themeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   statusBadge: {
     flexDirection: 'row',
@@ -556,6 +831,16 @@ const styles = StyleSheet.create({
     color: '#FFF',
     marginBottom: 16,
     letterSpacing: 0.2,
+  },
+  settingsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#111322',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    padding: 16,
+    marginBottom: 20,
   },
   gridContainer: {
     flexDirection: 'row',

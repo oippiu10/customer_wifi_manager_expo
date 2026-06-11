@@ -108,9 +108,25 @@ const DEFAULT_CREDENTIALS: CredentialItem[] = [
 
 interface CredentialsScreenProps {
   onBack: () => void;
+  theme?: 'light' | 'dark';
 }
 
-export const CredentialsScreen: React.FC<CredentialsScreenProps> = ({ onBack }) => {
+export const CredentialsScreen: React.FC<CredentialsScreenProps> = ({ onBack, theme }) => {
+  const isDark = theme === 'dark';
+  const colors = {
+    bg: isDark ? '#090A12' : '#F8FAFC',
+    card: isDark ? '#111322' : '#FFFFFF',
+    text: isDark ? '#FFFFFF' : '#0F172A',
+    subtext: isDark ? '#64748B' : '#475569',
+    inputBg: isDark ? '#090A12' : '#F1F5F9',
+    inputBorder: isDark ? '#1E293B' : '#E2E8F0',
+    inputText: isDark ? '#F8FAFC' : '#0F172A',
+    headerBorder: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(15, 23, 42, 0.06)',
+    cardBorder: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(15, 23, 42, 0.05)',
+    buttonBg: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(15, 23, 42, 0.04)',
+    activeBlue: '#06B6D4',
+  };
+
   const [search, setSearch] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -136,34 +152,34 @@ export const CredentialsScreen: React.FC<CredentialsScreenProps> = ({ onBack }) 
   );
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
       {/* HEADER */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={onBack} activeOpacity={0.7}>
-          <Text style={styles.backIcon}>◀</Text>
+      <View style={[styles.header, { borderColor: colors.headerBorder }]}>
+        <TouchableOpacity style={[styles.backButton, { backgroundColor: colors.buttonBg }]} onPress={onBack} activeOpacity={0.7}>
+          <Text style={[styles.backIcon, { color: colors.activeBlue }]}>◀</Text>
         </TouchableOpacity>
         <View style={styles.headerTextContainer}>
-          <Text style={styles.headerTitle}>Sandi Default Modem</Text>
-          <Text style={styles.headerSubtitle}>Database kredensial pabrikan ONT</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Sandi Default Modem</Text>
+          <Text style={[styles.headerSubtitle, { color: colors.subtext }]}>Database kredensial pabrikan ONT</Text>
         </View>
       </View>
 
       {/* SEARCH BAR */}
-      <View style={styles.searchContainer}>
+      <View style={[styles.searchContainer, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
         <TextInput
-          style={styles.searchInput}
+          style={[styles.searchInput, { color: colors.inputText }]}
           placeholder="Cari merk modem (misal: ZTE, Huawei)..."
-          placeholderTextColor="#475569"
+          placeholderTextColor={isDark ? '#475569' : '#94A3B8'}
           value={search}
           onChangeText={setSearch}
           autoCapitalize="none"
           autoCorrect={false}
         />
-        {search !== '' && (
+        {search !== '' ? (
           <TouchableOpacity onPress={() => setSearch('')} style={styles.clearSearch}>
-            <Text style={styles.clearSearchText}>✕</Text>
+            <Text style={[styles.clearSearchText, { color: colors.subtext }]}>✕</Text>
           </TouchableOpacity>
-        )}
+        ) : null}
       </View>
 
       {/* LIST DATA */}
@@ -175,13 +191,13 @@ export const CredentialsScreen: React.FC<CredentialsScreenProps> = ({ onBack }) 
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyIcon}>🔍</Text>
-            <Text style={styles.emptyText}>Tidak menemukan modem yang dicari</Text>
+            <Text style={[styles.emptyText, { color: colors.subtext }]}>Tidak menemukan modem yang dicari</Text>
           </View>
         }
         renderItem={({ item }) => (
-          <View style={styles.card}>
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <View style={styles.cardHeader}>
-              <Text style={styles.cardBrand}>{item.brand}</Text>
+              <Text style={[styles.cardBrand, { color: colors.text }]}>{item.brand}</Text>
               <View style={[
                 styles.badge, 
                 item.privilege === 'Superadmin' ? styles.badgeSuper : 
@@ -192,49 +208,49 @@ export const CredentialsScreen: React.FC<CredentialsScreenProps> = ({ onBack }) 
             </View>
 
             <View style={styles.cardRow}>
-              <Text style={styles.rowLabel}>IP Default</Text>
+              <Text style={[styles.rowLabel, { color: colors.subtext }]}>IP Default</Text>
               <TouchableOpacity 
-                style={styles.rowValueContainer}
+                style={[styles.rowValueContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
                 onPress={() => handleCopy(item.ip, item.id, 'IP Address')}
               >
-                <Text style={styles.rowValue}>{item.ip}</Text>
-                <Text style={styles.copyIndicator}>
+                <Text style={[styles.rowValue, { color: colors.subtext }]}>{item.ip}</Text>
+                <Text style={[styles.copyIndicator, { color: colors.subtext }]}>
                   {copiedId === `${item.id}-IP Address` ? 'Tersalin ✓' : 'Salin 📋'}
                 </Text>
               </TouchableOpacity>
             </View>
 
             <View style={styles.cardRow}>
-              <Text style={styles.rowLabel}>Username</Text>
+              <Text style={[styles.rowLabel, { color: colors.subtext }]}>Username</Text>
               <TouchableOpacity 
-                style={styles.rowValueContainer}
+                style={[styles.rowValueContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
                 onPress={() => handleCopy(item.username, item.id, 'Username')}
               >
-                <Text style={styles.rowValueHighlight}>{item.username}</Text>
-                <Text style={styles.copyIndicator}>
+                <Text style={[styles.rowValueHighlight, { color: colors.activeBlue }]}>{item.username}</Text>
+                <Text style={[styles.copyIndicator, { color: colors.subtext }]}>
                   {copiedId === `${item.id}-Username` ? 'Tersalin ✓' : 'Salin 📋'}
                 </Text>
               </TouchableOpacity>
             </View>
 
             <View style={styles.cardRow}>
-              <Text style={styles.rowLabel}>Password</Text>
+              <Text style={[styles.rowLabel, { color: colors.subtext }]}>Password</Text>
               <TouchableOpacity 
-                style={styles.rowValueContainer}
+                style={[styles.rowValueContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
                 onPress={() => handleCopy(item.password, item.id, 'Password')}
               >
-                <Text style={styles.rowValueHighlight}>{item.password}</Text>
-                <Text style={styles.copyIndicator}>
+                <Text style={[styles.rowValueHighlight, { color: colors.activeBlue }]}>{item.password}</Text>
+                <Text style={[styles.copyIndicator, { color: colors.subtext }]}>
                   {copiedId === `${item.id}-Password` ? 'Tersalin ✓' : 'Salin 📋'}
                 </Text>
               </TouchableOpacity>
             </View>
 
-            {item.notes && (
-              <View style={styles.notesContainer}>
-                <Text style={styles.notesText}>ℹ️ {item.notes}</Text>
+            {item.notes ? (
+              <View style={[styles.notesContainer, { borderColor: colors.headerBorder }]}>
+                <Text style={[styles.notesText, { color: colors.subtext }]}>ℹ️ {item.notes}</Text>
               </View>
-            )}
+            ) : null}
           </View>
         )}
       />

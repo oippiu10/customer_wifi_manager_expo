@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "WiFiKita",
+    "name": "WiFiKu",
     "slug": "customer-wifi-manager-expo",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -12,16 +12,26 @@
       "backgroundColor": "#0A0914"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.huseinnn.customerwifimanagerexpo",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0A0914"
-      }
+      },
+      "package": "com.huseinnn.customerwifimanagerexpo"
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "f62ee303-9a08-4339-8ac1-bb88d47606ac"
+      }
     }
   }
 }

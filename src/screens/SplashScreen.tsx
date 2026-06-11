@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Dimensions, Animated } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
 
@@ -53,10 +54,10 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinishCheck }) => 
       <View style={styles.logoContainer}>
         <View style={styles.glowContainer}>
           <View style={styles.pulseRing} />
-          <Text style={styles.logoIcon}>🌐</Text>
+          <Feather name="wifi" size={54} color="#06B6D4" />
         </View>
-        <Text style={styles.title}>NetGateway</Text>
-        <Text style={styles.subtitle}>Router Portal & Utility Jaringan</Text>
+        <Text style={styles.title}>WiFiKu</Text>
+        <Text style={styles.subtitle}>Portal WiFi & Utilitas Jaringan</Text>
       </View>
 
       <View style={styles.loaderContainer}>
@@ -64,7 +65,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinishCheck }) => 
         <View style={styles.progressBarBg}>
           <Animated.View style={[styles.progressBarFill, { width: widthInterpolation }]} />
         </View>
-        <Text style={styles.version}>Versi 1.0.0 • Premium Edition</Text>
+        <Text style={styles.version}>Versi 1.0.0 • Edisi Premium</Text>
       </View>
     </View>
   );

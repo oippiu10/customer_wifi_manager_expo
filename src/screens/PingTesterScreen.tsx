@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Dimensions
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
 
@@ -19,7 +20,22 @@ interface PingLog {
   timestamp: string;
 }
 
-export const PingTesterScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+export const PingTesterScreen: React.FC<{ onBack: () => void; theme: 'light' | 'dark' }> = ({ onBack, theme }) => {
+  const isDark = theme === 'dark';
+  const colors = {
+    bg: isDark ? '#090A12' : '#F8FAFC',
+    card: isDark ? '#111322' : '#FFFFFF',
+    text: isDark ? '#FFFFFF' : '#0F172A',
+    subtext: isDark ? '#64748B' : '#475569',
+    inputBg: isDark ? '#090A12' : '#F1F5F9',
+    inputBorder: isDark ? '#1E293B' : '#E2E8F0',
+    inputText: isDark ? '#F8FAFC' : '#0F172A',
+    headerBorder: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(15, 23, 42, 0.06)',
+    cardBorder: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(15, 23, 42, 0.05)',
+    buttonBg: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(15, 23, 42, 0.04)',
+    activeBlue: '#06B6D4',
+  };
+
   const [target, setTarget] = useState('192.168.1.1');
   const [pinging, setPinging] = useState(false);
   const [logs, setLogs] = useState<PingLog[]>([]);
@@ -107,13 +123,12 @@ export const PingTesterScreen: React.FC<{ onBack: () => void }> = ({ onBack }) =
         
         const duration = Date.now() - startTime;
         
-        // Simpan log sukses
-        setLogs(prev => [...prev, {
-          seq: currentSeq,
-          ip: cleanTarget,
-          time: duration,
-          timestamp: timeString
-        }]);
+        // Simpan log sukses (maksimal 100 entri terakhir)
+        setLogs(prev => {
+          const newLog = { seq: currentSeq, ip: cleanTarget, time: duration, timestamp: timeString };
+          const updated = [...prev, newLog];
+          return updated.length > 100 ? updated.slice(-100) : updated;
+        });
 
         setReceived(prev => prev + 1);
         
@@ -124,12 +139,11 @@ export const PingTesterScreen: React.FC<{ onBack: () => void }> = ({ onBack }) =
       } catch (error: any) {
         const isTimeout = error.name === 'AbortError';
         
-        setLogs(prev => [...prev, {
-          seq: currentSeq,
-          ip: cleanTarget,
-          time: isTimeout ? 'timeout' : 'error',
-          timestamp: timeString
-        }]);
+        setLogs(prev => {
+          const newLog = { seq: currentSeq, ip: cleanTarget, time: isTimeout ? 'timeout' as const : 'error' as const, timestamp: timeString };
+          const updated = [...prev, newLog];
+          return updated.length > 100 ? updated.slice(-100) : updated;
+        });
         
         setLost(prev => prev + 1);
       }
@@ -146,30 +160,31 @@ export const PingTesterScreen: React.FC<{ onBack: () => void }> = ({ onBack }) =
   }, [logs]);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
       {/* HEADER */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderColor: colors.headerBorder }]}>
         <TouchableOpacity style={styles.backButton} onPress={onBack} activeOpacity={0.7}>
-          <Text style={styles.backIcon}>◀</Text>
+          <Feather name="arrow-left" size={18} color="#06B6D4" />
         </TouchableOpacity>
         <View style={styles.headerTextContainer}>
-          <Text style={styles.headerTitle}>Tes Ping Jaringan</Text>
-          <Text style={styles.headerSubtitle}>Uji latensi respon & kestabilan router</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Tes Ping Jaringan</Text>
+          <Text style={[styles.headerSubtitle, { color: colors.subtext }]}>Uji latensi respon & kestabilan router</Text>
         </View>
       </View>
 
       {/* TARGET INPUT */}
-      <View style={styles.inputCard}>
-        <View style={styles.inputContainer}>
+      <View style={[styles.inputCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+        <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
           <Text style={styles.inputLabel}>Host Jaringan / IP</Text>
           <TextInput
-            style={styles.textInput}
+            style={[styles.textInput, { color: colors.inputText }]}
             value={target}
             onChangeText={setTarget}
             placeholder="192.168.1.1"
-            placeholderTextColor="#475569"
+            placeholderTextColor={isDark ? '#475569' : '#94A3B8'}
             autoCapitalize="none"
             autoCorrect={false}
+            keyboardType="url"
             editable={!pinging}
           />
         </View>
@@ -182,7 +197,7 @@ export const PingTesterScreen: React.FC<{ onBack: () => void }> = ({ onBack }) =
           {pinging ? (
             <View style={styles.pingingBtnContent}>
               <ActivityIndicator size="small" color="#FFF" style={{ marginRight: 8 }} />
-              <Text style={styles.pingButtonText}>Hentikan Pengujian</Text>
+              <Text style={[styles.pingButtonText, styles.pingButtonTextStop]}>Hentikan Pengujian</Text>
             </View>
           ) : (
             <Text style={styles.pingButtonText}>Mulai Pengujian Ping</Text>
@@ -191,11 +206,11 @@ export const PingTesterScreen: React.FC<{ onBack: () => void }> = ({ onBack }) =
       </View>
 
       {/* STATISTICS PANEL */}
-      <View style={styles.statsCard}>
+      <View style={[styles.statsCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
         <View style={styles.statsRow}>
           <View style={styles.statBox}>
             <Text style={styles.statLabel}>Paket Dikirim</Text>
-            <Text style={styles.statValue}>{sent}</Text>
+            <Text style={[styles.statValue, { color: colors.text }]}>{sent}</Text>
           </View>
           <View style={styles.statBox}>
             <Text style={styles.statLabel}>Diterima</Text>
@@ -203,18 +218,18 @@ export const PingTesterScreen: React.FC<{ onBack: () => void }> = ({ onBack }) =
           </View>
           <View style={styles.statBox}>
             <Text style={styles.statLabel}>Terputus/RTO</Text>
-            <Text style={[styles.statValue, { color: lost > 0 ? '#EF4444' : '#64748B' }]}>{lost}</Text>
+            <Text style={[styles.statValue, { color: lost > 0 ? '#EF4444' : colors.subtext }]}>{lost}</Text>
           </View>
         </View>
 
-        <View style={[styles.statsRow, { marginTop: 14, borderTopWidth: 1, borderColor: 'rgba(255, 255, 255, 0.03)', paddingTop: 12 }]}>
+        <View style={[styles.statsRow, { marginTop: 14, borderTopWidth: 1, borderColor: colors.headerBorder, paddingTop: 12 }]}>
           <View style={styles.statBox}>
             <Text style={styles.statLabel}>Min</Text>
-            <Text style={styles.statSubValue}>{minTime !== null ? `${minTime}ms` : '-'}</Text>
+            <Text style={[styles.statSubValue, { color: colors.text }]}>{minTime !== null ? `${minTime}ms` : '-'}</Text>
           </View>
           <View style={styles.statBox}>
             <Text style={styles.statLabel}>Max</Text>
-            <Text style={styles.statSubValue}>{maxTime !== null ? `${maxTime}ms` : '-'}</Text>
+            <Text style={[styles.statSubValue, { color: colors.text }]}>{maxTime !== null ? `${maxTime}ms` : '-'}</Text>
           </View>
           <View style={styles.statBox}>
             <Text style={styles.statLabel}>Rata-Rata</Text>
@@ -224,8 +239,8 @@ export const PingTesterScreen: React.FC<{ onBack: () => void }> = ({ onBack }) =
       </View>
 
       {/* TERMINAL LOG VIEW */}
-      <View style={styles.terminalContainer}>
-        <View style={styles.terminalHeader}>
+      <View style={[styles.terminalContainer, { backgroundColor: isDark ? '#05050A' : '#F1F5F9', borderColor: colors.cardBorder }]}>
+        <View style={[styles.terminalHeader, { backgroundColor: isDark ? '#0F0F1A' : '#E2E8F0', borderColor: colors.cardBorder }]}>
           <View style={styles.terminalDots}>
             <View style={[styles.dot, { backgroundColor: '#EF4444' }]} />
             <View style={[styles.dot, { backgroundColor: '#F59E0B' }]} />
@@ -241,7 +256,7 @@ export const PingTesterScreen: React.FC<{ onBack: () => void }> = ({ onBack }) =
           showsVerticalScrollIndicator={true}
         >
           {logs.length === 0 ? (
-            <Text style={styles.terminalPlaceholder}>
+            <Text style={[styles.terminalPlaceholder, { color: colors.subtext }]}>
               Terminal siap. Masukkan IP target lalu ketuk tombol di atas untuk memulai pemantauan ping real-time.
             </Text>
           ) : (
@@ -249,13 +264,13 @@ export const PingTesterScreen: React.FC<{ onBack: () => void }> = ({ onBack }) =
               <View key={index} style={styles.logLine}>
                 <Text style={styles.logTime}>[{log.timestamp}]</Text>
                 <Text style={styles.logSeq}> seq={log.seq}</Text>
-                <Text style={styles.logText}> Respon dari {log.ip}: </Text>
+                <Text style={[styles.logText, { color: colors.text }]}> Respon dari {log.ip}: </Text>
                 {log.time === 'timeout' ? (
-                  <Text style={styles.logTimeout}>RTO (Request Timeout) ⚠️</Text>
+                  <Text style={styles.logTimeout}>RTO (Request Timeout)</Text>
                 ) : log.time === 'error' ? (
-                  <Text style={styles.logError}>Unreachable / Error ❌</Text>
+                  <Text style={styles.logError}>Unreachable / Error</Text>
                 ) : (
-                  <Text style={styles.logSuccess}>waktu={log.time}ms ✅</Text>
+                  <Text style={styles.logSuccess}>waktu={log.time}ms</Text>
                 )}
               </View>
             ))
@@ -357,6 +372,9 @@ const styles = StyleSheet.create({
   pingButtonText: {
     fontSize: 14,
     fontWeight: '800',
+    color: '#FFF',
+  },
+  pingButtonTextStop: {
     color: '#FFF',
   },
   statsCard: {
