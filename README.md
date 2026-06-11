@@ -6,29 +6,33 @@ Aplikasi mobile berbasis **React Native (Expo)** untuk manajemen WiFi pelanggan 
 
 ## ✅ Fitur yang Sudah Jalan
 
-### 1. Otomasi Login Modem
+### 1. Otomasi Login & Navigasi Modem
 - Membuka portal modem via WebView (`http://<IP_MODEM>`)
 - Mengisi username & password secara otomatis (`injectedJavaScript`)
 - Klik tombol Login otomatis
-- Mendukung berbagai selector form (ZTE, Huawei, dsb)
+- Navigasi otomatis: **Network → WLAN** dengan mekanisme retry berlapis.
 
-### 2. Navigasi Otomatis: Network → WLAN
-- Setelah login berhasil, klik menu **Network** secara otomatis
-- Setelah halaman Network terbuka, klik submenu **WLAN** secara otomatis
-- Menggunakan ID elemen ZTE: `mmNet`, `smWLAN`
-- Fallback: panggil langsung fungsi JS modem `OnMenuItemClick()` + `openLink()`
+### 2. Panel Kontrol Native (SSID & Password WiFi)
+- Membaca SSID & password aktif dari modem dan menampilkannya di aplikasi secara aman.
+- Form ganti nama WiFi (SSID) dan kata sandi langsung dari UI aplikasi native.
+- Konfirmasi penyimpanan WiFi nirkabel aman dengan validasi kekuatan kata sandi (minimal 8 karakter).
+- Proses pembaruan WiFi aman dengan hitung mundur **60 detik** yang melacak tahapan restart modul wireless modem secara proporsional.
 
-### 3. Progress Card UI
-- Tampilan progress 3 langkah saat otomasi berjalan:
-  - ⏳ / ✓ Login otomatis
-  - ⏳ / ✓ Membuka menu Network
-  - ⏳ / ✓ Membuka pengaturan WLAN
-- Auto-hilang 2.5 detik setelah selesai
-- Animasi fade in/out
+### 3. Keamanan Sesi (Session Security Hardening)
+- **Inactivity Timer 3 Menit:** Sesi otomatis dibatasi hingga 3 menit tanpa aktivitas.
+- **Visual Radar Dot Countdown:** Indikator visual berupa titik cyan bercahaya di tepi radar terluar yang berputar 360 derajat melacak sisa waktu sesi secara dinamis.
+- **Interaksi Reset Sesi:** Sentuhan apa pun pada layar aplikasi secara instan mereset timer inaktivitas ke awal (titik radar melompat kembali ke Jam 12).
+- **Auto-Logout Force:** Deteksi habis waktu sesi (timeout) atau deteksi halaman login secara otomatis memicu penghapusan cookie/session aktif di modem (`flogout` submit) melalui Modal kustom native untuk mencegah konflik autentikasi.
 
-### 4. Dev Terminal
-- `npm run dev` → jalankan Expo + tampilkan QR code otomatis di bawah output
-- `npm run qr` → tampilkan ulang QR code saja
+### 4. Reboot Satu Tombol (One-Click Reboot)
+- Otomasi navigasi ke menu Manajemen → Reboot Sistem di portal modem ZTE.
+- Melakukan bypass konfirmasi dialog JavaScript modem secara otomatis.
+- Visualisasi countdown reboot **60 detik** dengan notifikasi error yang disaring untuk menjaga kestabilan UI ketika koneksi modem sedang terputus sementara.
+
+### 5. Mode Teknisi (Technician Mode)
+- Menampilkan diagnostik daya optik GPON fiber (Rx/Tx power, temperatur, bias current, voltage).
+- Tampilan detail perangkat terhubung yang membaca tabel DHCP leases router.
+- Mode Debug WebView untuk inspeksi elemen web modem secara langsung.
 
 ---
 
@@ -37,13 +41,14 @@ Aplikasi mobile berbasis **React Native (Expo)** untuk manajemen WiFi pelanggan 
 ```
 customer_wifi_manager_expo/
 ├── src/
+├── src/
 │   ├── screens/
-│   │   ├── ModemWebViewScreen.tsx   ← Inti otomasi WebView modem
+│   │   ├── ModemWebViewScreen.tsx   ← Inti otomasi WebView modem, diagnostik, & form ganti WiFi
 │   │   ├── DashboardScreen.tsx      ← Halaman utama app
 │   │   ├── CredentialsScreen.tsx    ← Input IP & kredensial modem
 │   │   ├── SplashScreen.tsx         ← Splash screen
-│   │   ├── PingTesterScreen.tsx     ← Tes koneksi ping
-│   │   └── NetworkGuideScreen.tsx   ← Panduan jaringan
+│   │   ├── PingTesterScreen.tsx     ← Tes koneksi ping ke gateway/internet
+│   │   └── NetworkGuideScreen.tsx   ← Panduan jaringan & pemecahan masalah
 │   └── navigation/
 │       └── AppNavigator.tsx         ← Navigasi antar layar
 ├── expo-dev.js                      ← Wrapper terminal (QR auto-print)
@@ -54,34 +59,38 @@ customer_wifi_manager_expo/
 
 ---
 
-## 🔄 Alur Otomasi (ModemWebViewScreen)
+## 🔄 Alur Otomasi & Sesi (ModemWebViewScreen)
 
 ```
-Buka http://<IP>
-    │
-    ▼
-[AUTOFILL_SUCCESS]  ← Form login terdeteksi & diisi otomatis
-    │
-    ▼
-[LOGIN_CLICKED]     ← Tombol login diklik
-    │
-    ├─ navPhase = 'network'
-    ├─ Progress: Login ✓
-    └─ setTimeout → injectClickNetwork()
-          │
-          ▼
-    [NAV_NETWORK_CLICKED]  ← Menu Network berhasil diklik
-          │
-          ├─ navPhase = 'wlan'
-          ├─ Progress: Network ✓
-          └─ setTimeout → injectClickWlan()
-                │
-                ▼
-          [NAV_WLAN_CLICKED]  ← Halaman WLAN terbuka
-                │
-                ├─ navPhase = 'done'
-                ├─ Progress: WLAN ✓
-                └─ hideCard() setelah 2.5 detik
+       Buka http://<IP>
+               │
+               ▼
+   [AUTOFILL_SUCCESS] (Login Otomatis)
+               │
+               ▼
+        [LOGIN_CLICKED]
+               │
+   ┌───────────┴───────────┐
+   ▼                       ▼
+Mode User               Mode Teknisi
+(Navigasi WLAN)         (Navigasi Diagnostik / DHCP)
+   │                       │
+   ▼                       ▼
+Selesai Baca Data       Selesai Baca Data
+   │                       │
+   └───────────┬───────────┘
+               │
+               ▼
+     Mulai Timer Inaktivitas (3 Menit)
+     * Radar Dot berputar 360°
+     * Interaksi sentuh = Reset ke 0
+               │
+         Waktu Habis / Login Terbuka
+               │
+               ▼
+     Tampilkan Modal Sesi Berakhir
+     * Jalankan handleBackWithLogout()
+     * Bersihkan Sesi Modem
 ```
 
 ---
@@ -92,14 +101,14 @@ Buka http://<IP>
 Mencari elemen dengan ID/teks "Network" di DOM, klik parent TR yang punya `onclick`.
 
 ### `injectClickWlan` (ZTE-specific)
-4 strategi berurutan:
+Strategi pencarian WLAN di modem ZTE F663V3A:
 1. Cari `id="smWLAN"` → naik ke parent `<tr>` → klik
 2. Panggil langsung `OnMenuItemClick('mmNet','smWLAN')` + `openLink(...)`
 3. Cari `<tr onclick*="smWLAN">`
 4. Cari teks "WLAN" exact → klik parent TR
 
-### Retry Mechanism
-Setiap fungsi inject di-retry beberapa kali dengan interval berbeda (1s, 2s, 3.5s, dll) karena halaman modem load lambat. Guard `navPhaseRef.current` memastikan retry berhenti begitu berhasil.
+### Bypass Reboot Confirmation
+Mengekstrak fungsi `msgCallback()` atau `uiDoReboot()` bawaan firmware modem ZTE, serta meng-override fungsi `window.confirm` agar selalu bernilai `true` untuk menghindari pop-up dialog yang memblokir otomasi di latar belakang.
 
 ---
 
@@ -116,13 +125,13 @@ npm run dev
 npm run qr
 ```
 
-Scan QR code dengan **Expo Go** di HP yang terhubung WiFi yang sama.
+Scan QR code dengan **Expo Go** di HP yang terhubung WiFi yang sama dengan modem.
 
 ---
 
 ## ⚙️ Konfigurasi Modem
 
-Modem yang didukung: **ZTE** (diuji dengan firmware ZTE PON)
+Modem yang didukung: **ZTE F663V3A** (dan modem dengan firmware ZTE PON sejenis)
 
 URL login: `http://192.168.1.1` (default)
 
@@ -130,23 +139,11 @@ Kredensial diinput di layar **CredentialsScreen** sebelum membuka WebView.
 
 ---
 
-## 🚧 Rencana Fitur Berikutnya
-
-- [ ] Baca SSID & password WiFi dari halaman WLAN → tampil di app
-- [ ] Form ganti nama WiFi (SSID) dari dalam app
-- [ ] Form ganti password WiFi dari dalam app
-- [ ] Submit perubahan otomatis ke modem
-- [ ] Dukungan multi-modem (simpan beberapa profil IP)
-
----
-
 ## 📝 Catatan Teknis
 
-- Modem ZTE menyimpan SSID di field `ESSID` dan password di `KeyPassphrase`
-- Navigasi menu ZTE menggunakan fungsi JS: `openLink()`, `OnMenuItemClick()`
-- Format URL halaman WLAN: `getpage.gch?pid=1002&nextpage=pon_net_wlan_conf1_t.gch`
-- `react-native-webview` digunakan untuk render portal modem
-- Semua komunikasi WebView ↔ RN via `window.ReactNativeWebView.postMessage()`
+- Sesi inaktivitas dikontrol oleh linear `Animated.Value` dengan `useNativeDriver: true` agar performa UI tetap responsif pada frame rate tinggi di platform seluler.
+- Overlay loading keluar (`isLoggingOut`) dirender menggunakan native `<Modal>` guna mencegah tabrakan visual (overlapping) di atas modal lainnya.
+- Semua komunikasi WebView ↔ React Native via `window.ReactNativeWebView.postMessage()`.
 
 ---
 
