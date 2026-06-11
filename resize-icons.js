@@ -68,6 +68,13 @@ async function processImages() {
     await splashCanvas.write(path.join(__dirname, 'assets', 'splash-icon.png'));
     console.log('✅ assets/splash-icon.png berhasil dibuat.');
 
+    // --- 4. MEMBUAT FAVICON ---
+    // Ukuran standar favicon web: 48x48.
+    const faviconSize = 48;
+    const faviconCanvas = originalImage.clone().resize({ w: faviconSize, h: faviconSize });
+    await faviconCanvas.write(path.join(__dirname, 'assets', 'favicon.png'));
+    console.log('✅ assets/favicon.png berhasil dibuat.');
+
     console.log('🎉 Pemrosesan icon selesai dengan sukses!');
   } catch (error) {
     console.error('❌ Gagal memproses gambar:', error);
