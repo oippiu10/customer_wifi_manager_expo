@@ -10,15 +10,15 @@ async function processImages() {
     const originalImage = await Jimp.read(sourcePath);
     
     // --- 1. MEMBUAT ADAPTIVE ICON (UNTUK ANDROID) ---
-    // Ukuran standar: 1024x1024. Logo disusutkan menjadi 512x512 (50% area)
-    // agar memiliki padding pengaman dan tidak terlihat kebesaran / terpotong bulat/kotak di Android.
+    // Ukuran standar: 1024x1024. Logo disusutkan menjadi 680x680 (zona aman ~66%)
+    // agar terlihat pas dan tidak kekecilan di launcher Android.
     const adaptiveSize = 1024;
-    const logoSizeAndroid = 512;
+    const logoSizeAndroid = 680;
     
     const adaptiveCanvas = new Jimp({ 
       width: adaptiveSize, 
       height: adaptiveSize,
-      color: 0x00000000 // transparent color
+      color: 0x00000000 // tetap transparan untuk adaptive foreground
     });
     const resizedLogoAndroid = originalImage.clone().resize({ w: logoSizeAndroid, h: logoSizeAndroid });
     
@@ -27,17 +27,18 @@ async function processImages() {
     
     adaptiveCanvas.composite(resizedLogoAndroid, xAndroid, yAndroid);
     await adaptiveCanvas.write(path.join(__dirname, 'assets', 'adaptive-icon.png'));
-    console.log('✅ assets/adaptive-icon.png berhasil dibuat dengan padding aman.');
+    console.log('✅ assets/adaptive-icon.png berhasil dibuat dengan ukuran 680px.');
 
     // --- 2. MEMBUAT ICON UTAMA (UNTUK HOMESCREEN/STORE) ---
-    // Ukuran standar: 1024x1024. Kita beri padding sedikit (logo ukuran 800x800) agar terlihat rapi.
+    // Menggunakan background putih solid agar tidak menjadi hitam paksa di iOS/Android lawas
+    // Ukuran logo dibuat 900x900 agar terisi penuh dengan sedikit padding manis.
     const iconSize = 1024;
-    const logoSizeMain = 800;
+    const logoSizeMain = 900;
     
     const iconCanvas = new Jimp({ 
       width: iconSize, 
       height: iconSize,
-      color: 0x00000000
+      color: 0xFFFFFFFF // Latar belakang putih solid
     });
     const resizedLogoMain = originalImage.clone().resize({ w: logoSizeMain, h: logoSizeMain });
     
@@ -46,13 +47,12 @@ async function processImages() {
     
     iconCanvas.composite(resizedLogoMain, xMain, yMain);
     await iconCanvas.write(path.join(__dirname, 'assets', 'icon.png'));
-    console.log('✅ assets/icon.png berhasil dibuat.');
+    console.log('✅ assets/icon.png berhasil dibuat dengan background putih.');
 
     // --- 3. MEMBUAT SPLASH SCREEN ICON ---
-    // Splash screen biasanya meletakkan icon di tengah. Jika terlalu besar akan kurang elegan.
-    // Ukuran standar splash icon: 1024x1024. Logo disusutkan menjadi 400x400.
+    // Splash screen icon diubah ukurannya ke 600px agar terlihat proporsional dan jelas.
     const splashSize = 1024;
-    const logoSizeSplash = 400;
+    const logoSizeSplash = 600;
     
     const splashCanvas = new Jimp({ 
       width: splashSize, 
@@ -66,7 +66,7 @@ async function processImages() {
     
     splashCanvas.composite(resizedLogoSplash, xSplash, ySplash);
     await splashCanvas.write(path.join(__dirname, 'assets', 'splash-icon.png'));
-    console.log('✅ assets/splash-icon.png berhasil dibuat.');
+    console.log('✅ assets/splash-icon.png berhasil dibuat dengan ukuran 600px.');
 
     // --- 4. MEMBUAT FAVICON ---
     // Ukuran standar favicon web: 48x48.

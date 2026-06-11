@@ -26,7 +26,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0A0914"
+        "backgroundColor": "#FFFFFF"
       },
       "package": "com.huseinnn.customerwifimanagerexpo"
     },
