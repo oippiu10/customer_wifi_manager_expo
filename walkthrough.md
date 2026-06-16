@@ -126,4 +126,36 @@ Kami mengidentifikasi dan memperbaiki masalah yang menyebabkan tombol utama tida
    - Jika terdeteksi offline, teks tombol akan berubah menjadi **"Buka Portal (Offline?)"** dengan warna merah/slate yang interaktif agar pengguna tetap dapat mencoba membuka portal secara manual.
    - Jika sedang memverifikasi koneksi, teks tombol akan berubah menjadi **"Buka Portal (Mengecek...)"** dengan warna amber untuk memfasilitasi bypass instan tanpa perlu menunggu proses deteksi selesai.
 
+---
+
+## 🚀 Pembaruan Fitur Premium Terbaru (Ikon Kustom, Auto-Update, & Salin Log)
+
+Kami baru saja merilis pembaruan baru yang berfokus pada kualitas visual premium, kemudahan pemeliharaan, serta kegunaan alat bantu diagnostik:
+
+### 1. 🎨 Integrasi Logo 3D Kustom Transparan (100% Brand WiFiKu)
+- Kami menggantikan ikon Wi-Fi generik bawaan Feather di layar aplikasi dengan **logo 3D biru transparan milik Anda** yang baru:
+  - **Layar Utama (Dasbor)**: Logo 3D berdenyut dengan halus di tengah orbit radar berputar.
+  - **Layar Pembuka (Splash Screen)**: Logo 3D bersinar di tengah efek denyut (*pulse ring*), memberikan impresi awal aplikasi yang mewah.
+- Skrip pembuat ikon (`resize-icons.js`) diperbarui agar menghasilkan file `assets/icon.png` utama dengan **latar belakang transparan** sehingga ikon aplikasi terlihat bersih di menu utama ponsel pengguna tanpa ada kotak putih di belakangnya.
+
+### 2. ⚡ Konfigurasi Auto-Update OTA (`expo-updates`)
+- Modul **`expo-updates`** telah terinstal dan terkonfigurasi secara resmi pada proyek.
+- **Mekanisme**: Setiap kali aplikasi dibuka, sistem akan secara otomatis memeriksa pembaruan kode JavaScript terbaru dari server Expo secara senyap di latar belakang. Jika tersedia update, aplikasi akan mengunduh dan menerapkannya secara instan.
+- **Penyelarasan Dependensi**: Menjalankan perbaikan dependensi (`npx expo install --fix` dan `npm dedupe`) untuk memastikan kepatuhan 100% dengan standard **Expo SDK 54**. Lolos verifikasi `npx expo-doctor` (18/18 checks passed!).
+
+### 3. 📋 Fitur Salin Log Diagnosa Ping (Diagnostics Console)
+- Menambahkan tombol **ikon Salin (`Feather name="copy"`)** di pojok kanan atas konsol terminal `diagnostics_console.sh` pada halaman [PingTesterScreen.tsx](file:///c:/laragon/www/customer_wifi_manager_expo/src/screens/PingTesterScreen.tsx).
+- Teknisi kini dapat menyalin seluruh riwayat logs uji latensi dengan sekali klik untuk ditempel dan dikirim langsung lewat WhatsApp/Telegram ke tim admin NOC atau pelanggan.
+
+---
+
+## 📌 Tambahan Riwayat Git Commit
+- **Commit 27**: `feat: ganti ikon aplikasi dengan logo wifi 3d baru tanpa background`
+- **Commit 28**: `style: ganti latar belakang icon.png menjadi transparan agar sesuai dengan keinginan pengguna`
+- **Commit 29**: `style: ganti ikon wifi generik dengan logo 3d kustom pengguna di splash screen dan dasbor utama`
+- **Commit 30**: `fix: gunakan expo-build-properties untuk mengaktifkan usesCleartextTraffic Android secara benar`
+- **Commit 31**: `feat: pasang dan konfigurasi expo-updates serta selaraskan dependensi versi SDK 54`
+- **Commit 32**: `feat: tambah fitur salin log ping (copy to clipboard) di PingTesterScreen`
+
+
 
