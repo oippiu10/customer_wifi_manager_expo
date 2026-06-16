@@ -38,7 +38,7 @@ async function processImages() {
     const iconCanvas = new Jimp({ 
       width: iconSize, 
       height: iconSize,
-      color: 0xFFFFFFFF // Latar belakang putih solid
+      color: 0x00000000 // Latar belakang transparan
     });
     const resizedLogoMain = originalImage.clone().resize({ w: logoSizeMain, h: logoSizeMain });
     
@@ -47,7 +47,7 @@ async function processImages() {
     
     iconCanvas.composite(resizedLogoMain, xMain, yMain);
     await iconCanvas.write(path.join(__dirname, 'assets', 'icon.png'));
-    console.log('✅ assets/icon.png berhasil dibuat dengan background putih.');
+    console.log('✅ assets/icon.png berhasil dibuat dengan background transparan.');
 
     // --- 3. MEMBUAT SPLASH SCREEN ICON ---
     // Splash screen icon diubah ukurannya ke 600px agar terlihat proporsional dan jelas.
