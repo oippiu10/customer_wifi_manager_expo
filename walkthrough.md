@@ -110,4 +110,20 @@ Seluruh modifikasi kode telah di-stage dan di-commit dengan aman ke Git lokal un
 - **Commit 23**: `fix: tingkatkan ketangguhan clickElement dengan mengekstrak atribut onclick inline dan memperbaiki fallback openLink di sub-dokumen defaultView`
 - **Commit 24**: `fix: pisahkan arah navigasi setelah login berhasil (LOGIN_CLICKED) berdasarkan menu aktif (status vs network) untuk memutus perulangan tak terbatas (looping)`
 - **Commit 25**: `fix: implementasikan pencarian frame secara rekursif mendalam (getAllDocs) dan toleransi spasi/newline (regex whitespace) untuk mengklik sub-menu Network Interface dan PON Inform`
+- **Commit 26**: `fix: izinkan koneksi cleartext HTTP di Android APK dan jadikan tombol utama tetap dapat diklik saat offline/mengecek`
+
+---
+
+## 🛠️ Perbaikan Khusus untuk Build APK Standalone
+
+Kami mengidentifikasi dan memperbaiki masalah yang menyebabkan tombol utama tidak bisa ditekan setelah aplikasi di-build menjadi APK:
+
+1. **Keamanan Cleartext HTTP Android (ERR_CLEARTEXT_NOT_PERMITTED)**:
+   Secara default, Android 9 (API 28) ke atas memblokir semua permintaan jaringan HTTP biasa (cleartext/tanpa SSL). Karena modem lokal menggunakan IP HTTP biasa (`http://192.168.1.1`), modul `fetch` dan `WebView` gagal seketika saat memeriksa status koneksi atau memuat halaman modem pada build APK. Kami menambahkan `"usesCleartextTraffic": true` di bagian `android` pada [app.json](file:///c:/laragon/www/customer_wifi_manager_expo/app.json) untuk mengizinkan lalu lintas HTTP lokal ini.
+
+2. **Interaktivitas Tombol Utama (Bypass Mode)**:
+   Sebelumnya tombol utama dinonaktifkan (`disabled={isOnline !== true}`) jika status online modem tidak terdeteksi. Namun, pemeriksaan `fetch` bisa saja diblokir oleh sistem Android atau kebijakan CORS lokal sementara halaman modem sebenarnya tetap bisa diakses melalui WebView. Kami mengubah tombol utama di [DashboardScreen.tsx](file:///c:/laragon/www/customer_wifi_manager_expo/src/screens/DashboardScreen.tsx) agar **selalu dapat diklik** (menghapus status `disabled`). 
+   - Jika terdeteksi offline, teks tombol akan berubah menjadi **"Buka Portal (Offline?)"** dengan warna merah/slate yang interaktif agar pengguna tetap dapat mencoba membuka portal secara manual.
+   - Jika sedang memverifikasi koneksi, teks tombol akan berubah menjadi **"Buka Portal (Mengecek...)"** dengan warna amber untuk memfasilitasi bypass instan tanpa perlu menunggu proses deteksi selesai.
+
 

@@ -219,7 +219,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
 
   const handleOpenGateway = () => {
     const cleanIp = ipInput.trim();
-    if (cleanIp && isOnline === true) {
+    if (cleanIp) {
       onOpenGateway(cleanIp);
     }
   };
@@ -358,7 +358,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
               ]}
               onPress={handleOpenGateway}
               activeOpacity={0.8}
-              disabled={isOnline !== true}
             >
               <Text style={[
                 styles.connectButtonText,
@@ -366,7 +365,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
                 isOnline === 'checking' && styles.connectButtonTextChecking,
                 isOnline === true && { color: '#FFFFFF' }
               ]}>
-                {isOnline === true ? 'Buka Portal Modem' : isOnline === false ? 'Modem Offline' : 'Mengecek Koneksi...'}
+                {isOnline === true ? 'Buka Portal Modem' : isOnline === false ? 'Buka Portal (Offline?)' : 'Buka Portal (Mengecek...)'}
               </Text>
             </TouchableOpacity>
 
@@ -758,15 +757,15 @@ const styles = StyleSheet.create({
   },
   connectButtonDisabled: {
     backgroundColor: '#1E293B',
-    borderColor: '#334155',
-    borderWidth: 1,
+    borderColor: '#EF4444',
+    borderWidth: 1.5,
     shadowOpacity: 0,
     elevation: 0,
   },
   connectButtonChecking: {
     backgroundColor: '#1E293B',
     borderColor: '#F59E0B',
-    borderWidth: 1,
+    borderWidth: 1.5,
     shadowOpacity: 0,
     elevation: 0,
   },
@@ -776,7 +775,7 @@ const styles = StyleSheet.create({
     color: '#090A12',
   },
   connectButtonTextDisabled: {
-    color: '#475569',
+    color: '#EF4444',
   },
   connectButtonTextChecking: {
     color: '#F59E0B',
