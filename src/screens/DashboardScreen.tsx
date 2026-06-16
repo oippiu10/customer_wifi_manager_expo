@@ -11,6 +11,7 @@ import {
   Platform,
   Animated,
   Modal,
+  Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
@@ -325,7 +326,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
                   justifyContent: 'center',
                   alignItems: 'center'
                 }}>
-                  <Feather name="wifi" size={44} color="#06B6D4" />
+                  <Image 
+                    source={require('../../assets/image.png')} 
+                    style={{ width: 54, height: 54 }} 
+                    resizeMode="contain" 
+                  />
                 </Animated.View>
                 
               </View>

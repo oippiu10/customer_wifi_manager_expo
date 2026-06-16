@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Dimensions, Animated } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, Animated, Image } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
@@ -54,7 +54,11 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinishCheck }) => 
       <View style={styles.logoContainer}>
         <View style={styles.glowContainer}>
           <View style={styles.pulseRing} />
-          <Feather name="wifi" size={54} color="#06B6D4" />
+          <Image 
+            source={require('../../assets/image.png')} 
+            style={{ width: 68, height: 68 }} 
+            resizeMode="contain" 
+          />
         </View>
         <Text style={styles.title}>WiFiKu</Text>
         <Text style={styles.subtitle}>Portal WiFi & Utilitas Jaringan</Text>
