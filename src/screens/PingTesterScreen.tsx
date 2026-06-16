@@ -7,7 +7,11 @@ import {
   TextInput, 
   ScrollView, 
   ActivityIndicator,
-  Dimensions
+  Dimensions,
+  Clipboard,
+  ToastAndroid,
+  Platform,
+  Alert
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
@@ -150,7 +154,6 @@ export const PingTesterScreen: React.FC<{ onBack: () => void; theme: 'light' | '
     }, 1200);
   };
 
-  // Kalkulasi rata-rata secara dinamis
   useEffect(() => {
     const successLogs = logs.filter(l => typeof l.time === 'number') as { time: number }[];
     if (successLogs.length > 0) {
@@ -158,6 +161,24 @@ export const PingTesterScreen: React.FC<{ onBack: () => void; theme: 'light' | '
       setAvgTime(Math.round(sum / successLogs.length));
     }
   }, [logs]);
+
+  const handleCopyLogs = () => {
+    if (logs.length === 0) {
+      Alert.alert('Info', 'Tidak ada log untuk disalin.');
+      return;
+    }
+    const logsText = logs.map(log => {
+      const status = log.time === 'timeout' ? 'RTO' : log.time === 'error' ? 'Error' : `${log.time}ms`;
+      return `[${log.timestamp}] seq=${log.seq} Respon dari ${log.ip}: ${status}`;
+    }).join('\n');
+
+    Clipboard.setString(logsText);
+    if (Platform.OS === 'android') {
+      ToastAndroid.show('Semua log berhasil disalin!', ToastAndroid.SHORT);
+    } else {
+      Alert.alert('Disalin', 'Semua log berhasil disalin ke papan klip!');
+    }
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
@@ -247,6 +268,13 @@ export const PingTesterScreen: React.FC<{ onBack: () => void; theme: 'light' | '
             <View style={[styles.dot, { backgroundColor: '#10B981' }]} />
           </View>
           <Text style={styles.terminalTitle}>diagnostics_console.sh</Text>
+          <TouchableOpacity 
+            onPress={handleCopyLogs} 
+            activeOpacity={0.6}
+            style={{ width: 48, alignItems: 'flex-end', justifyContent: 'center', height: '100%' }}
+          >
+            <Feather name="copy" size={14} color="#06B6D4" />
+          </TouchableOpacity>
         </View>
 
         <ScrollView 
